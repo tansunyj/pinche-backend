@@ -1,9 +1,9 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # ============================================================
 # 重建并重启 pinche-backend 容器
 #
 # 用法：
-#   ./restart.sh          # 用最新代码重建镜像 → 重建容器 → 等健康检查通过
+#   sh restart.sh          # 用最新代码重建镜像 → 重建容器 → 等健康检查通过
 #
 # 做三件事：
 #   1. 校验 .env.docker 存在（真实配置，缺失直接拒绝）
@@ -11,8 +11,10 @@
 #   3. 轮询容器健康状态直到 healthy（最多 90s）
 #
 # 前置：Docker 已启动；server/ 下已有 .env.docker（cp .env.docker.example 填真实值）
+#
+# 兼容性：POSIX sh（dash/bash/sh 均可执行），避免 bash 专属语法（pipefail 等）。
 # ============================================================
-set -euo pipefail
+set -eu
 cd "$(dirname "$0")"
 
 CONTAINER="pinche-backend"
@@ -43,25 +45,22 @@ docker compose up -d --build
 # ---- 3. 等待健康检查通过 ----
 echo "==> 等待容器健康（最多 ${TIMEOUT_SEC}s）..."
 elapsed=0
+status="starting"
+
 while [ "$elapsed" -lt "$TIMEOUT_SEC" ]; do
   status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$CONTAINER" 2>/dev/null || echo "starting")
-  case "$status" in
-    healthy)
-      echo "    ✓ 容器 healthy（耗时 ${elapsed}s）"
-      ;;
-    starting)
-      echo "    ... $status（${elapsed}s）"
-      ;;
-    *)
-      # unhealthy / no-healthcheck / 其他：直接失败，让用户看日志
-      echo "    ✗ 容器状态异常：$status"
-      echo "    —— 最近日志 ——"
-      docker logs --tail 50 "$CONTAINER" || true
-      exit 1
-      ;;
-  esac
-
-  [ "$status" = "healthy" ] && break
+  if [ "$status" = "healthy" ]; then
+    echo "    ✓ 容器 healthy（耗时 ${elapsed}s）"
+    break
+  elif [ "$status" = "starting" ]; then
+    echo "    ... starting（${elapsed}s）"
+  else
+    # unhealthy / no-healthcheck / 其他异常：直接失败并打印日志
+    echo "    ✗ 容器状态异常：$status"
+    echo "    —— 最近日志 ——"
+    docker logs --tail 50 "$CONTAINER" 2>/dev/null || true
+    exit 1
+  fi
   sleep "$POLL_INTERVAL"
   elapsed=$((elapsed + POLL_INTERVAL))
 done
