@@ -8,6 +8,10 @@ services:
     restart: unless-stopped
     ports:
       - "14001:14001"
+    # Linux 原生 Docker 没有 Docker Desktop 的 host.docker.internal 魔法域名，
+    # 用 host-gateway 把它映射到宿主机，容器内才能连到宿主 MySQL/Redis。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NODE_ENV=production
       # 容器内必须监听所有网卡，否则端口映射后外部访问不到（代码默认 127.0.0.1）
