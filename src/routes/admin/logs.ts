@@ -170,8 +170,9 @@ router.get("/request-detail", async (req: Request, res: Response) => {
     }
 
     const d = (detailRows as any[])[0];
-    // request_headers / request_body / response_headers / response_body 是 JSON/文本，原样透传由前端解析展示。
-    // 直接返回详情对象（与其它 admin GET 接口一致，前端 res.data 直取）。
+    // 请求/应答数据（request_headers/request_body/request_size_bytes/response_headers/
+    // response_body/response_size_bytes）已从 proxy_logs DROP COLUMN（仅入网关日志），
+    // 详情只返回元数据。直接返回详情对象（与其它 admin GET 接口一致，前端 res.data 直取）。
     res.json({
       id: d.id,
       requestId: d.request_id,
@@ -181,13 +182,7 @@ router.get("/request-detail", async (req: Request, res: Response) => {
       model: d.model,
       requestMethod: d.request_method,
       requestPath: d.request_path,
-      requestHeaders: parseJsonText(d.request_headers),
-      requestBody: parseJsonText(d.request_body),
-      requestSizeBytes: d.request_size_bytes,
       responseStatus: d.response_status,
-      responseHeaders: parseJsonText(d.response_headers),
-      responseBody: parseJsonText(d.response_body),
-      responseSizeBytes: d.response_size_bytes,
       isStream: !!d.is_stream,
       streamChunks: d.stream_chunks,
       firstChunkLatencyMs: d.first_chunk_latency_ms,
@@ -196,7 +191,6 @@ router.get("/request-detail", async (req: Request, res: Response) => {
       completionTokens: d.completion_tokens,
       totalTokens: d.total_tokens,
       costPoints: d.quota_consumed,
-      errorCode: d.error_code,
       errorMessage: d.error_msg,
       clientIp: d.client_ip,
       userAgent: d.user_agent,
@@ -210,16 +204,5 @@ router.get("/request-detail", async (req: Request, res: Response) => {
     res.status(500).json({ error: "查询日志详情失败" });
   }
 });
-
-/** 尝试解析 JSON 字符串；失败则原样返回文本（可能是截断的原始请求/响应体） */
-function parseJsonText(value: any): any {
-  if (value == null) return null;
-  if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
 
 export default router;
