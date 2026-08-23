@@ -9,7 +9,8 @@
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "start:dev": "cross-env NODE_ENV=development tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "seed": "cross-env NODE_ENV=development tsx scripts/seed.ts"
+    "seed": "cross-env NODE_ENV=development tsx scripts/seed.ts",
+    "admin": "cross-env NODE_ENV=development tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "alipay-sdk": "^4.14.0",
