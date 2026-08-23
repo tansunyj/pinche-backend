@@ -1,0 +1,28 @@
+{
+  "skills": [
+    {
+      "id": "github_awesome_agents",
+      "type": "github_repo",
+      "url": "https://api.github.com/repos/e2b-dev/awesome-ai-agents/readme",
+      "parser": "markdown_extract",
+      "last_fetched": null
+    }
+  ],
+  "news": [
+    {
+      "id": "huggingface_daily",
+      "type": "rss",
+      "url": "https://huggingface.co/blog/feed.xml",
+      "parser": "rss_extract",
+      "last_fetched": null
+    }
+  ],
+  "tasks": [
+    {
+      "id": "synthetic_tasks",
+      "type": "llm_generation",
+      "prompt": "You are a freelance task generator. Generate 3 realistic AI-related tasks/bounties (e.g., 'Build a custom RAG system', 'Fine-tune Llama 3 for medical data'). Include title, description, reward (in coins).",
+      "last_fetched": null
+    }
+  ]
+}

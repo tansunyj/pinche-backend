@@ -1,0 +1,84 @@
+function estimateTokens(messages) {
+  if (!messages || !Array.isArray(messages)) return 0;
+  let total = 0;
+  for (const msg of messages) {
+    total += (msg.content?.length || 0) / 4;
+  }
+  return Math.round(total);
+}
+
+class StreamUsageCollector {
+  constructor() {
+    this.promptTokens = 0;
+    this.completionTokens = 0;
+    this.hasUsage = false;
+    this.finishReason = null;
+    this._buffer = '';
+  }
+
+  accept(chunk) {
+    this._buffer += chunk;
+
+    if (!this.hasUsage) {
+      const m = this._buffer.match(/"prompt_tokens":\s*(\d+).*?"completion_tokens":\s*(\d+)/s);
+      if (m) {
+        this.promptTokens = parseInt(m[1]);
+        this.completionTokens = parseInt(m[2]);
+        this.hasUsage = true;
+      }
+    }
+
+    if (!this.finishReason) {
+      const fm = this._buffer.match(/"finish_reason":\s*"([^"]*)"/);
+      if (fm) {
+        this.finishReason = fm[1];
+      }
+    }
+  }
+
+  finalize({ interrupted, upstreamError }) {
+    if (upstreamError) {
+      return {
+        status: 'upstream_error',
+        promptTokens: 0,
+        completionTokens: 0,
+        hasUsage: false,
+        finishReason: null,
+      };
+    }
+
+    if (interrupted) {
+      return {
+        status: this.hasUsage ? 'client_aborted_with_usage' : 'client_aborted',
+        promptTokens: this.promptTokens,
+        completionTokens: this.completionTokens,
+        hasUsage: this.hasUsage,
+        finishReason: this.finishReason,
+      };
+    }
+
+    if (this.hasUsage) {
+      return {
+        status: 'completed',
+        promptTokens: this.promptTokens,
+        completionTokens: this.completionTokens,
+        hasUsage: true,
+        finishReason: this.finishReason,
+      };
+    }
+
+    return {
+      status: 'usage_missing',
+      promptTokens: 0,
+      completionTokens: 0,
+      hasUsage: false,
+      finishReason: this.finishReason,
+    };
+  }
+
+  static estimateFallback(messages) {
+    return estimateTokens(messages);
+  }
+}
+
+module.exports = { StreamUsageCollector };

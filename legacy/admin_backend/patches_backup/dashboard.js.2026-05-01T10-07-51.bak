@@ -1,0 +1,178 @@
+const express = require('express');
+const router = express.Router();
+const { getDb } = require('../db/init');
+const { authMiddleware } = require('../middleware/auth');
+const { quotaToYuan } = require('../utils/billing');
+
+router.use(authMiddleware);
+
+router.get('/overview', (req, res) => {
+  const db = getDb();
+  const today = new Date().toISOString().split('T')[0];
+
+  const todayStats = db.prepare(`
+    SELECT
+      COUNT(*) as todayLogs,
+      COALESCE(SUM(prompt_tokens), 0) as todayPromptTokens,
+      COALESCE(SUM(completion_tokens), 0) as todayCompletionTokens,
+      COALESCE(SUM(quota_consumed), 0) as todayQuota
+    FROM logs WHERE date(created_at) = ?
+  `).get(today);
+
+  const totalStats = db.prepare(`
+    SELECT COALESCE(SUM(quota_consumed), 0) as totalQuotaUsed
+    FROM logs
+  `).get();
+
+  const activeChannels = db.prepare('SELECT COUNT(*) as count FROM channels WHERE status = 1').get().count;
+  const activeTokens = db.prepare('SELECT COUNT(*) as count FROM tokens WHERE status = 1').get().count;
+
+  res.json({
+    todayQuota: quotaToYuan(todayStats.todayQuota),
+    todayLogs: todayStats.todayLogs,
+    todayPromptTokens: todayStats.todayPromptTokens,
+    todayCompletionTokens: todayStats.todayCompletionTokens,
+    totalQuotaUsed: quotaToYuan(totalStats.totalQuotaUsed),
+    activeChannels,
+    activeTokens,
+  });
+});
+
+router.get('/chart/daily', (req, res) => {
+  const days = parseInt(req.query.days) || 7;
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      date(created_at) as date,
+      COALESCE(SUM(quota_consumed), 0) as quota,
+      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+      COUNT(*) as requests
+    FROM logs
+    WHERE date(created_at) >= date('now', '-' || ? || ' days')
+    GROUP BY date(created_at)
+    ORDER BY date ASC
+  `).all(days);
+
+  const result = [];
+  for (const row of rows) {
+    const cost = parseFloat(quotaToYuan(row.quota));
+    result.push({ date: row.date, cost, type: '消费(¥)' });
+    result.push({ date: row.date, cost: row.prompt_tokens, type: '输入Token' });
+    result.push({ date: row.date, cost: row.completion_tokens, type: '输出Token' });
+  }
+  res.json(result);
+});
+
+router.get('/chart/models', (req, res) => {
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      model,
+      COALESCE(SUM(quota_consumed), 0) as quota,
+      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+      COUNT(*) as requests
+    FROM logs
+    GROUP BY model
+    ORDER BY quota DESC
+  `).all();
+
+  const result = rows.map(r => ({
+    model: r.model,
+    cost: parseFloat(quotaToYuan(r.quota)),
+    prompt_tokens: r.prompt_tokens,
+    completion_tokens: r.completion_tokens,
+    requests: r.requests,
+  }));
+  res.json(result);
+});
+
+router.get('/latency', (req, res) => {
+  const db = getDb();
+  const days = parseInt(req.query.days) || 7;
+
+  const dailyLatency = db.prepare(`
+    SELECT
+      date(created_at) as date,
+      ROUND(AVG(latency_ms)) as avg_latency,
+      COUNT(*) as requests
+    FROM logs
+    WHERE latency_ms > 0 AND date(created_at) >= date('now', '-' || ? || ' days')
+    GROUP BY date(created_at)
+    ORDER BY date ASC
+  `).all(days);
+
+  const overall = db.prepare(`
+    SELECT
+      ROUND(AVG(latency_ms)) as avg_latency,
+      MIN(latency_ms) as min_latency,
+      MAX(latency_ms) as max_latency,
+      COUNT(*) as requests
+    FROM logs
+    WHERE latency_ms > 0
+  `).get();
+
+  const recent = db.prepare(`
+    SELECT token_name, model, latency_ms, created_at
+    FROM logs
+    WHERE latency_ms > 0
+    ORDER BY id DESC
+    LIMIT 5
+  `).all();
+
+  res.json({
+    overall,
+    daily: dailyLatency,
+    recent,
+  });
+});
+
+router.get('/logs', (req, res) => {
+  const db = getDb();
+  const { model, token_name, status, start_date, end_date, page = 1, pageSize = 20 } = req.query;
+  const offset = (page - 1) * pageSize;
+
+  let where = [];
+  let params = [];
+  if (model) { where.push('model = ?'); params.push(model); }
+  if (token_name) { where.push('token_name = ?'); params.push(token_name); }
+  if (status) { where.push('status = ?'); params.push(status); }
+  if (start_date) { where.push('date(created_at) >= ?'); params.push(start_date); }
+  if (end_date) { where.push('date(created_at) <= ?'); params.push(end_date); }
+
+  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+  const total = db.prepare(`SELECT COUNT(*) as count FROM logs ${whereClause}`).get(...params).count;
+
+  const logs = db.prepare(`
+    SELECT *, quota_consumed as quota_yuan FROM logs ${whereClause}
+    ORDER BY id DESC LIMIT ? OFFSET ?
+  `).all(...params, pageSize, offset);
+
+  const summary = db.prepare(`
+    SELECT
+      COALESCE(SUM(quota_consumed), 0) as total_quota,
+      COALESCE(SUM(prompt_tokens), 0) as total_prompt,
+      COALESCE(SUM(completion_tokens), 0) as total_completion,
+      COUNT(*) as total_requests
+    FROM logs ${whereClause}
+  `).get(...params);
+
+  res.json({
+    logs: logs.map(l => ({ ...l, quota_yuan: quotaToYuan(l.quota_consumed) })),
+    total,
+    page: Number(page),
+    pageSize: Number(pageSize),
+    summary: {
+      totalCost: quotaToYuan(summary.total_quota),
+      totalPrompt: summary.total_prompt,
+      totalCompletion: summary.total_completion,
+      totalRequests: summary.total_requests,
+    },
+  });
+});
+
+module.exports = router;

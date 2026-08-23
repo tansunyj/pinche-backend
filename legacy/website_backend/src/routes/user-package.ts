@@ -1,0 +1,137 @@
+/**
+ * 用户套餐查询接口（公开接口，用于用户端和 Java Gateway）
+ */
+
+import { Router, Request, Response } from "express";
+import pool from "../db/mysql";
+import { authMiddleware } from "../middleware/auth";
+import redis from "../utils/redis";
+
+const router = Router();
+
+/**
+ * 安全解析 models JSON 字段
+ * mysql2 execute() 可能已自动将 MySQL JSON 列解析为对象，需兼容两种格式
+ */
+function parseModelsField(val: any): any[] {
+  if (!val) return [];
+  if (typeof val === "object") return Array.isArray(val) ? val : [val];
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e: any) {
+    console.error("[UserPackage] models JSON parse error:", e.message);
+    return [];
+  }
+}
+
+/**
+ * GET /api/user/package
+ * 获取当前用户的套餐信息（需要用户 JWT）
+ */
+router.get("/", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ success: false, error: "未登录" });
+      return;
+    }
+
+    // 尝试从 Redis 缓存获取
+    const cacheKey = `package:user:${userId}`;
+    try {
+      const cacheData = await redis.hgetall(cacheKey);
+      if (cacheData && Object.keys(cacheData).length > 0) {
+        const endAt = cacheData.end_at;
+        if (endAt && new Date(endAt) < new Date()) {
+          await redis.del(cacheKey);
+        } else {
+          res.json({
+            success: true,
+            data: {
+              package_id: cacheData.package_id ? parseInt(cacheData.package_id) : null,
+              package_name: cacheData.package_name || null,
+              models: cacheData.models ? JSON.parse(cacheData.models) : [],
+              start_at: cacheData.start_at || null,
+              end_at: cacheData.end_at || null,
+              assigned_at: cacheData.assigned_at || null,
+              cached: true,
+            },
+          });
+          return;
+        }
+      }
+    } catch (cacheErr: any) {
+      console.error("[UserPackage] 缓存读取失败:", cacheErr.message);
+    }
+
+    // 查询数据库
+    const [rows] = await pool.execute(
+      `SELECT
+        up.package_id,
+        up.package_name,
+        up.assigned_at,
+        p.models,
+        p.status,
+        p.start_at,
+        p.end_at
+      FROM user_packages up
+      LEFT JOIN packages p ON up.package_id = p.id
+      WHERE up.user_id = ?
+        AND p.deleted_at IS NULL
+        AND p.status = 1`,
+      [userId]
+    );
+
+    const row = (rows as any[])[0];
+    if (!row) {
+      res.json({ success: true, data: null });
+      return;
+    }
+
+    // 检查套餐是否过期
+    if (row.end_at && new Date(row.end_at) < new Date()) {
+      res.json({ success: true, data: null, message: "套餐已过期" });
+      return;
+    }
+
+    // 检查套餐是否待生效
+    if (row.start_at && new Date(row.start_at) > new Date()) {
+      res.json({ success: true, data: null, message: "套餐尚未生效" });
+      return;
+    }
+
+    const models = parseModelsField(row.models);
+
+    const result = {
+      package_id: row.package_id,
+      package_name: row.package_name,
+      models,
+      start_at: row.start_at,
+      end_at: row.end_at,
+      assigned_at: row.assigned_at,
+    };
+
+    // 写入 Redis 缓存
+    try {
+      await (redis as any).hmset(cacheKey, {
+        package_id: String(result.package_id),
+        package_name: result.package_name || "",
+        models: JSON.stringify(models),
+        start_at: result.start_at || "",
+        end_at: result.end_at || "",
+        assigned_at: result.assigned_at || "",
+      });
+      await redis.expire(cacheKey, 300);
+    } catch (cacheErr: any) {
+      console.error("[UserPackage] 缓存写入失败:", cacheErr.message);
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error("[user-package] get error:", error);
+    res.status(500).json({ success: false, error: "获取用户套餐失败" });
+  }
+});
+
+export default router;

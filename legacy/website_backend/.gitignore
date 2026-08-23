@@ -1,0 +1,82 @@
+# ============================================
+# Node.js / TypeScript 项目 .gitignore
+# 适用于 website_backend (Express + TypeScript)
+# ============================================
+
+# 依赖目录
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# 注意：package-lock.json 必须提交 —— Docker 服务器构建依赖 npm ci（无 lock 会失败）
+# package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 构建输出
+dist/
+build/
+*.tsbuildinfo
+
+# 环境变量文件（包含敏感信息）
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# 但保留示例文件
+!.env.development.example
+!.env.production.example
+
+# 日志文件
+logs/
+*.log
+log/
+
+# 运行时数据
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# 测试覆盖率
+coverage/
+.nyc_output/
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 操作系统文件
+Thumbs.db
+Desktop.ini
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 上传的文件（用户生成内容）
+uploads/
+public/uploads/
+
+# 数据库文件（如果使用 SQLite）
+*.db
+*.sqlite
+*.sqlite3
+
+# Prisma（如果使用）
+prisma/*.db
+prisma/migrations/*/migration.sql
+
+# Docker
+docker-compose.override.yml
+
+# 其他
+.cache/
+.eslintcache

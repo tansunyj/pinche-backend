@@ -1,0 +1,45 @@
+# Silievo Admin Backend —— 容器化编排（服务器本地构建，host 网络）
+#
+# 用途：给 admin-backend 套上内存硬上限（mem_limit）+ 崩溃自动重启（restart）。
+#       服务 OOM 时内核只杀容器、Docker 自动拉起，绝不波及宿主机（MySQL/Redis/nginx/SSH）。
+#
+# 构建：在仓库根目录直接 docker compose 构建，无需任何镜像仓库。
+#       image 为本地 tag（silievo-admin-backend:local），每次 --build 重建覆盖。
+#
+# 网络：host 网络（network_mode: host）—— 容器与宿主机共享网络命名空间。
+#       应用照旧监听 127.0.0.1:3001，nginx 反代配置不变，
+#       MySQL/Redis/网关全部 localhost 直连，服务器零配置改动。
+#       mem_limit 是 cgroup 内存限制，与网络模式无关，host 下依然生效。
+#
+# 环境变量：env_file 读取仓库根目录 ./.env.production（与 pm2 时代同一份生产配置）。
+#   .env* 不进 git（.dockerignore + .gitignore 双重排除），服务器 clone 后单独放置。
+#
+# 用法（服务器，在 /opt/silievo/admin_backend 目录内）：
+#   首次/发版： docker compose up -d --build
+#   升级：       git pull && docker compose up -d --build
+#   回滚：       git checkout <旧tag/commit> && docker compose up -d --build
+#   详情见仓库内 DEPLOY.md
+
+services:
+  admin-backend:
+    build: .
+    image: silievo-admin-backend:local
+    container_name: silievo-admin-backend
+    network_mode: host              # 共享宿主机网络，127.0.0.1:3001 即宿主机地址
+    restart: unless-stopped         # OOM 崩溃后自动重启
+    mem_limit: 512m                 # cron 凌晨并发时只崩自己
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

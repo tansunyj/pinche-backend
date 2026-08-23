@@ -1,0 +1,230 @@
+const { calculateQuota, calculateCost, isThinkingRequest } = require('../utils/billing');
+const channelResolver = require('./ChannelResolver');
+const upstreamClient = require('./UpstreamClient');
+const { StreamUsageCollector } = require('./StreamUsageCollector');
+const settlementService = require('./SettlementService');
+const logRepository = require('../repositories/LogRepository');
+const tokenRepository = require('../repositories/TokenRepository');
+
+const DEFAULT_DIRECT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+
+function validateModelAccess(token, model) {
+  const allowedModels = token.models.split(',').map(m => m.trim()).filter(Boolean);
+  if (allowedModels.length === 0) {
+    return { allowed: false, error: '该令牌未绑定模型，请先配置模型后使用', type: 'no_model' };
+  }
+  if (!allowedModels.includes(model) && !allowedModels.includes('*')) {
+    return { allowed: false, error: `该令牌仅限调用模型: ${token.models}，不允许调用: ${model}`, type: 'model_forbidden' };
+  }
+  return { allowed: true };
+}
+
+function resolveUpstream(token, model, requestPath) {
+  if (token.api_key) {
+    const { channel } = channelResolver.resolve(model, token);
+    const baseUrl = channel ? channel.base_url.replace(/\/+$/, '') : DEFAULT_DIRECT_BASE;
+    const targetUrl = channelResolver.buildTargetUrl(baseUrl, requestPath);
+    return {
+      targetUrl,
+      upstreamApiKey: token.api_key,
+      channelName: '主API',
+      channel: channel || null,
+    };
+  }
+
+  const { channel } = channelResolver.resolve(model, token);
+  if (!channel) {
+    return null;
+  }
+  const baseUrl = channel.base_url.replace(/\/+$/, '');
+  const targetUrl = channelResolver.buildTargetUrl(baseUrl, requestPath);
+  return {
+    targetUrl,
+    upstreamApiKey: channel.api_key,
+    channelName: channel.name,
+    channel,
+  };
+}
+
+class ProxyResult {
+  constructor(statusCode, headers, body) {
+    this.statusCode = statusCode;
+    this.headers = headers;
+    this.body = body;
+  }
+
+  writeTo(res) {
+    if (this.headers) {
+      for (const [key, val] of Object.entries(this.headers)) {
+        res.setHeader(key, val);
+      }
+    }
+    res.status(this.statusCode);
+    if (typeof this.body === 'string') {
+      res.send(this.body);
+    } else {
+      res.json(this.body);
+    }
+  }
+}
+
+class StreamProxyResult {
+  constructor({ onWrite, onEnd, billingWriter }) {
+    this._onWrite = onWrite;
+    this._onEnd = onEnd;
+    this._billingWriter = billingWriter;
+  }
+
+  async writeTo(res) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    const collector = await this._onWrite(res);
+    if (this._billingWriter) {
+      const billingChunk = this._billingWriter(collector);
+      if (billingChunk) {
+        res.write(billingChunk);
+      }
+    }
+    res.end();
+    await this._onEnd(collector);
+  }
+}
+
+async function execute({ token, requestPath, body }) {
+  const model = body?.model;
+  if (!model) {
+    return new ProxyResult(400, null, { error: { message: '请指定模型名称', type: 'invalid_request' } });
+  }
+
+  const access = validateModelAccess(token, model);
+  if (!access.allowed) {
+    return new ProxyResult(403, null, { error: { message: access.error, type: access.type } });
+  }
+
+  const upstream = resolveUpstream(token, model, requestPath);
+  if (!upstream) {
+    return new ProxyResult(503, null, { error: { message: `没有可用渠道支持模型: ${model}`, type: 'no_channel' } });
+  }
+
+  const isThinking = isThinkingRequest(body);
+  const priceMarkup = token.price_markup || 1.0;
+  const startTime = Date.now();
+
+  console.log(`[Proxy] ${model} → ${upstream.channelName} | thinking=${isThinking} | markup=${priceMarkup}x | ${upstream.targetUrl}`);
+
+  try {
+    const isStream = body?.stream === true;
+    const response = await upstreamClient.send({
+      targetUrl: upstream.targetUrl,
+      upstreamApiKey: upstream.upstreamApiKey,
+      body,
+    });
+
+    if (!response.ok) {
+      const elapsed = Date.now() - startTime;
+      const errBody = await response.text();
+      settlementService.commitNonStreamFailed({
+        token,
+        channel: upstream.channel,
+        model,
+        latencyMs: elapsed,
+        errorMsg: errBody.slice(0, 500),
+        isThinking,
+        priceMarkup,
+      });
+      return new ProxyResult(response.status, null, errBody);
+    }
+
+    if (isStream) {
+      return new StreamProxyResult({
+        onWrite: async (res) => {
+          const collector = new StreamUsageCollector();
+          const reader = response.body.getReader();
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(value);
+              collector.accept(new TextDecoder().decode(value, { stream: true }));
+            }
+          } catch (e) {
+            // stream interrupted
+          }
+          return collector;
+        },
+        billingWriter: (collector) => {
+          const outcome = collector.finalize({ interrupted: false, upstreamError: false });
+          let pt = outcome.promptTokens;
+          let ct = outcome.completionTokens;
+
+          if (!outcome.hasUsage || pt === 0) {
+            pt = StreamUsageCollector.estimateFallback(body?.messages);
+            ct = 0;
+          }
+
+          const billing = calculateCost(model, pt, ct, isThinking, priceMarkup);
+          const totalTokens = pt + ct;
+          return `data: ${JSON.stringify({
+            usage: {
+              prompt_tokens: pt,
+              completion_tokens: ct,
+              total_tokens: totalTokens,
+              billing,
+            },
+          })}\n\ndata: [DONE]\n\n`;
+        },
+        onEnd: async (collector) => {
+          const elapsed = Date.now() - startTime;
+          const outcome = collector.finalize({ interrupted: false, upstreamError: false });
+          settlementService.commitStreamOutcome({
+            token,
+            channel: upstream.channel,
+            model,
+            outcome,
+            fallbackMessages: body?.messages,
+            latencyMs: elapsed,
+            isThinking,
+            priceMarkup,
+          });
+        },
+      });
+    }
+
+    const data = await response.json();
+    const pt = data.usage?.prompt_tokens || 0;
+    const ct = data.usage?.completion_tokens || 0;
+    const elapsed = Date.now() - startTime;
+
+    settlementService.commitSuccess({
+      token,
+      channel: upstream.channel,
+      model,
+      promptTokens: pt,
+      completionTokens: ct,
+      latencyMs: elapsed,
+      isThinking,
+      priceMarkup,
+    });
+
+    if (data.usage) {
+      data.usage.billing = calculateCost(model, pt, ct, isThinking, priceMarkup);
+    }
+
+    return new ProxyResult(200, null, data);
+  } catch (err) {
+    const elapsed = Date.now() - startTime;
+    settlementService.commitNonStreamFailed({
+      token,
+      channel: upstream.channel,
+      model,
+      latencyMs: elapsed,
+      errorMsg: err.message,
+      isThinking,
+      priceMarkup,
+    });
+    return new ProxyResult(502, null, { error: { message: `上游请求失败: ${err.message}`, type: 'upstream_error' } });
+  }
+}
+
+module.exports = { execute };
