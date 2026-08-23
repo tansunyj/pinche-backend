@@ -47,8 +47,13 @@ export async function issueAuthSession(user: UserRow, res: Response) {
     sameSite: "lax",
     secure: COOKIE_SECURE,
     maxAge: REFRESH_TTL_SECONDS * 1000,
-    path: "/api/auth",
+    // Path=/：让审计等所有 /api/* 请求都能带上 refresh_token 归属用户
+    // （原 Path=/api/auth 只随 /api/auth/* 发送，会话闲置超 15 分钟后公开接口无法归属）
+    path: "/",
   });
+  // 清除旧版 Path=/api/auth 的历史 cookie，避免浏览器同时持两份 refresh_token、
+  // 而刷新接口按"长 Path 优先"选到已失效的旧值导致循环 401
+  res.clearCookie("refresh_token", { path: "/api/auth" });
 
   return { accessToken, refreshToken };
 }
@@ -65,5 +70,6 @@ export async function matchesRefreshToken(userId: number, refreshToken: string):
 
 export function clearAuthCookies(res: Response) {
   res.clearCookie("auth_token", { path: "/" });
-  res.clearCookie("refresh_token", { path: "/api/auth" });
+  res.clearCookie("refresh_token", { path: "/" });
+  res.clearCookie("refresh_token", { path: "/api/auth" }); // 兼容历史 Path=/api/auth 残留
 }

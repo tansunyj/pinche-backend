@@ -61,6 +61,7 @@ import perfMetricsRoutes from "./routes/system/perf-metrics";
 
 import { checkConnections } from "./config/db";
 import { initCronJobs } from "./cron";
+import { auditLog } from "./middlewares/auditLog";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 14001;
@@ -93,6 +94,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// 全接口操作审计（须在 express.json 之后、业务路由之前）
+app.use(auditLog);
 
 // ==================== 路由挂载 ====================
 

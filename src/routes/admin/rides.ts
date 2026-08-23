@@ -90,7 +90,8 @@ router.get("/models", async (req: Request, res: Response) => {
        JOIN model_library ml ON ml.model_id = cm.model_id
        ${where}
        ORDER BY ml.sort_order ASC, c.channel_code ASC, cm.model_id ASC
-       LIMIT 500`
+       LIMIT 500`,
+      params
     );
 
     res.json({

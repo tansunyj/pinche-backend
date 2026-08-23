@@ -5,11 +5,13 @@
  *   GET    /:id                    用户详情（余额 / 充值统计）
  *   GET    /:id/discounts          该用户全部网关折扣（含已失效）
  *   POST   /:id/status             启用/禁用拼车侧账号
+ *   POST   /:id/balance            余额调整（±额度，超管；写 balance + cumulative_recharge）
  */
 
 import { Router, Request, Response } from "express";
 import { cpQuery, gatewayPool, carpoolPool } from "../../config/db";
-import { adminAuth } from "../../middlewares/adminAuth";
+import { adminAuth, requireSuperAdmin } from "../../middlewares/adminAuth";
+import redis from "../../utils/redis";
 
 const router = Router();
 router.use(adminAuth);
@@ -45,16 +47,6 @@ router.get("/", async (req: Request, res: Response) => {
       for (const m of mRows as any[]) ridesMap.set(Number(m.user_id), Number(m.cnt));
     }
 
-    // 每用户累计充值金额（成功到账订单）
-    const payMap = new Map<number, number>();
-    if (ptIds.length > 0) {
-      const [pRows] = await carpoolPool.execute(
-        `SELECT user_id, SUM(amount_yuan) AS total FROM pt_payments WHERE status='SUCCESS' AND user_id IN (${ptIds.map(() => "?").join(",")}) GROUP BY user_id`,
-        ptIds
-      );
-      for (const p of pRows as any[]) payMap.set(Number(p.user_id), Number(p.total));
-    }
-
     res.json({
       total,
       page,
@@ -68,9 +60,10 @@ router.get("/", async (req: Request, res: Response) => {
           avatarUrl: u.avatar_url,
           status: u.status,
           createdAt: u.created_at,
-          // 钱包余额（额度值，1元=100000额度）与累计充值金额（元）
+          // 钱包余额（额度值）与累计充值（额度值 /100000 转元，1元=100000额度）；
+          // 累计充值读 pt_users.cumulative_recharge（含手动余额调整），而非支付订单表
           balance: Number(u.balance) || 0,
-          totalRechargedYuan: payMap.get(Number(u.id)) || 0,
+          totalRechargedYuan: (Number(u.cumulative_recharge) || 0) / 100000,
           rideCount: ridesMap.get(Number(u.id)) || 0,
         };
       }),
@@ -137,6 +130,67 @@ router.post("/:id/status", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Admin user status error:", err);
     res.status(500).json({ error: "操作失败" });
+  }
+});
+
+// ============ 余额调整（± 额度，写 pt_users.balance / cumulative_recharge） ============
+// body: { amountCents: number, reason?: string }
+//   amountCents 单位「分」，正=增加，负=减少（如 +12345 = +123.45 元）
+//   1 元 = 100 分 = 100000 额度 → 1 分 = 1000 额度
+// 仅超管（与 payments retry 等敏感操作一致）。允许负余额（用户已确认，不加下限校验）。
+router.post("/:id/balance", requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      res.status(400).json({ error: "用户 ID 不合法" });
+      return;
+    }
+
+    const amountCents = Number(req.body?.amountCents);
+    if (!Number.isInteger(amountCents) || amountCents === 0) {
+      res.status(400).json({ error: "调整金额必须是非零整数（单位：分）" });
+      return;
+    }
+
+    // 用户存在校验 + 取调整前余额
+    const rows = await cpQuery("SELECT balance, cumulative_recharge FROM pt_users WHERE id = ? LIMIT 1", [userId]);
+    const user = Array.isArray(rows) ? rows[0] : null;
+    if (!user) {
+      res.status(404).json({ error: "用户不存在" });
+      return;
+    }
+
+    const previousBalance = Number(user.balance) || 0;
+    const previousCumulativeRecharge = Number(user.cumulative_recharge) || 0;
+    const quotaDelta = amountCents * 1000; // 1 分 = 1000 额度
+
+    // 相对更新（照抄 credit.ts 的到账写法）：balance 与 cumulative_recharge 同增同减
+    const [ur] = await carpoolPool.execute(
+      "UPDATE pt_users SET balance = balance + ?, cumulative_recharge = cumulative_recharge + ? WHERE id = ?",
+      [quotaDelta, quotaDelta, userId]
+    );
+    if ((ur as any).affectedRows === 0) {
+      res.status(404).json({ error: "用户不存在" });
+      return;
+    }
+
+    // ⚠️ 必须删网关读的冒号键 user:balance:{userId}（TTL 10min），否则网关读旧值；
+    //    不能学 credit.ts 的下划线键 user_balance:（那是 bug）
+    await redis.del(`user:balance:${userId}`);
+
+    res.json({
+      success: true,
+      message: "余额调整成功",
+      amountCents,
+      quotaDelta,
+      previousBalance,
+      newBalance: previousBalance + quotaDelta,
+      previousCumulativeRecharge,
+      newCumulativeRecharge: previousCumulativeRecharge + quotaDelta,
+    });
+  } catch (err) {
+    console.error("Admin user balance adjust error:", err);
+    res.status(500).json({ error: "调整余额失败" });
   }
 });
 

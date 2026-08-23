@@ -1,3 +1,8 @@
+-- MySQL dump 10.13  Distrib 8.0.41, for Win64 (x86_64)
+--
+-- Host: localhost    Database: pt_carpool
+-- ------------------------------------------------------
+-- Server version	8.0.41
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -9,6 +14,11 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `endpoint`
+--
+
 DROP TABLE IF EXISTS `endpoint`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -19,6 +29,15 @@ CREATE TABLE `endpoint` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `endpoint`
+--
+
+--
+-- Table structure for table `model_library`
+--
+
 DROP TABLE IF EXISTS `model_library`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -52,6 +71,16 @@ CREATE TABLE `model_library` (
   FULLTEXT KEY `ft_model_search` (`display_name`,`description`)
 ) ENGINE=InnoDB AUTO_INCREMENT=95 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='模型库表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `model_library`
+--
+
+
+--
+-- Table structure for table `model_price_tiers`
+--
+
 DROP TABLE IF EXISTS `model_price_tiers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -68,6 +97,17 @@ CREATE TABLE `model_price_tiers` (
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分层定价配置表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `model_price_tiers`
+--
+
+
+
+--
+-- Table structure for table `model_prices`
+--
+
 DROP TABLE IF EXISTS `model_prices`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -99,6 +139,17 @@ CREATE TABLE `model_prices` (
   CONSTRAINT `model_prices_ibfk_1` FOREIGN KEY (`model_id`) REFERENCES `model_library` (`model_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='模型价格表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `model_prices`
+--
+
+
+
+--
+-- Table structure for table `price_tier_time_ranges`
+--
+
 DROP TABLE IF EXISTS `price_tier_time_ranges`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -117,6 +168,16 @@ CREATE TABLE `price_tier_time_ranges` (
   KEY `idx_tier_id` (`tier_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分时段定价明细表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `price_tier_time_ranges`
+--
+
+
+--
+-- Table structure for table `provider_capabilities`
+--
+
 DROP TABLE IF EXISTS `provider_capabilities`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -132,6 +193,16 @@ CREATE TABLE `provider_capabilities` (
   UNIQUE KEY `uk_provider_alias` (`provider_alias`)
 ) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Adapter 能力清单（网关枚举启动同步，admin_backend 直读）';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `provider_capabilities`
+--
+
+
+--
+-- Table structure for table `proxy_channel_models`
+--
+
 DROP TABLE IF EXISTS `proxy_channel_models`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -154,6 +225,16 @@ CREATE TABLE `proxy_channel_models` (
   CONSTRAINT `proxy_channel_models_ibfk_1` FOREIGN KEY (`channel_id`) REFERENCES `proxy_channels` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='渠道-模型关联表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `proxy_channel_models`
+--
+
+
+--
+-- Table structure for table `proxy_channel_tokens`
+--
+
 DROP TABLE IF EXISTS `proxy_channel_tokens`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -182,6 +263,15 @@ CREATE TABLE `proxy_channel_tokens` (
   CONSTRAINT `proxy_channel_tokens_ibfk_1` FOREIGN KEY (`channel_id`) REFERENCES `proxy_channels` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='渠道-Token关联表（支持多Token负载均衡）';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `proxy_channel_tokens`
+--
+
+--
+-- Table structure for table `proxy_channels`
+--
+
 DROP TABLE IF EXISTS `proxy_channels`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -203,6 +293,16 @@ CREATE TABLE `proxy_channels` (
   UNIQUE KEY `idx_channel_code` (`channel_code`)
 ) ENGINE=InnoDB AUTO_INCREMENT=33 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `proxy_channels`
+--
+
+
+--
+-- Table structure for table `proxy_logs`
+--
+
 DROP TABLE IF EXISTS `proxy_logs`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -251,8 +351,16 @@ CREATE TABLE `proxy_logs` (
   KEY `proxy_logs_created_at_IDX` (`created_at`,`user_id`) USING BTREE,
   KEY `idx_proxy_logs_latency_stats` (`created_at`,`latency_ms`),
   KEY `idx_logs_request_id` (`request_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `proxy_logs`
+--
+--
+-- Table structure for table `proxy_tokens`
+--
+
 DROP TABLE IF EXISTS `proxy_tokens`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -281,6 +389,15 @@ CREATE TABLE `proxy_tokens` (
   KEY `idx_token_group_code` (`token_group_code`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `proxy_tokens`
+--
+
+--
+-- Table structure for table `pt_admins`
+--
+
 DROP TABLE IF EXISTS `pt_admins`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -294,8 +411,55 @@ CREATE TABLE `pt_admins` (
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='管理员';
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='管理员';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_admins`
+--
+
+--
+-- Table structure for table `pt_audit_logs`
+--
+
+DROP TABLE IF EXISTS `pt_audit_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `pt_audit_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `actor_type` varchar(20) DEFAULT NULL COMMENT 'admin / user / system',
+  `actor_id` bigint DEFAULT NULL,
+  `actor_name` varchar(100) DEFAULT NULL COMMENT 'admin.username 或 user.phone',
+  `method` varchar(10) NOT NULL,
+  `path` varchar(500) NOT NULL,
+  `query` varchar(1000) DEFAULT NULL,
+  `status_code` int NOT NULL,
+  `request_body` text COMMENT '脱敏+截断',
+  `response_body` text COMMENT '脱敏+截断',
+  `ip` varchar(64) DEFAULT NULL,
+  `user_agent` varchar(500) DEFAULT NULL,
+  `duration_ms` int DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_actor` (`actor_type`,`actor_id`),
+  KEY `idx_path` (`path`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='全接口操作审计日志';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_audit_logs`
+--
+
+LOCK TABLES `pt_audit_logs` WRITE;
+/*!40000 ALTER TABLE `pt_audit_logs` DISABLE KEYS */;
+/*!40000 ALTER TABLE `pt_audit_logs` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `pt_idempotent_keys`
+--
+
 DROP TABLE IF EXISTS `pt_idempotent_keys`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -308,6 +472,16 @@ CREATE TABLE `pt_idempotent_keys` (
   UNIQUE KEY `uk_biz` (`biz_type`,`biz_key`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='幂等键';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_idempotent_keys`
+--
+
+
+--
+-- Table structure for table `pt_payment_tasks`
+--
+
 DROP TABLE IF EXISTS `pt_payment_tasks`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -326,6 +500,15 @@ CREATE TABLE `pt_payment_tasks` (
   KEY `idx_status_next` (`status`,`next_retry_at`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='充值到账任务队列';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_payment_tasks`
+--
+
+--
+-- Table structure for table `pt_payments`
+--
+
 DROP TABLE IF EXISTS `pt_payments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -351,6 +534,15 @@ CREATE TABLE `pt_payments` (
   KEY `idx_out_trade_no` (`out_trade_no`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='支付流水';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_payments`
+--
+
+--
+-- Table structure for table `pt_recharge_tiers`
+--
+
 DROP TABLE IF EXISTS `pt_recharge_tiers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -364,6 +556,15 @@ CREATE TABLE `pt_recharge_tiers` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='充值档位';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_recharge_tiers`
+--
+
+--
+-- Table structure for table `pt_ride_group_models`
+--
+
 DROP TABLE IF EXISTS `pt_ride_group_models`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -379,8 +580,17 @@ CREATE TABLE `pt_ride_group_models` (
   KEY `idx_group_id` (`group_id`),
   CONSTRAINT `pt_ride_group_models_ibfk_1` FOREIGN KEY (`group_id`) REFERENCES `pt_ride_groups` (`id`) ON DELETE CASCADE,
   CONSTRAINT `pt_ride_group_models_ibfk_2` FOREIGN KEY (`ride_id`) REFERENCES `pt_rides` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='分组内的模型';
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='分组内的模型';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_ride_group_models`
+--
+
+--
+-- Table structure for table `pt_ride_groups`
+--
+
 DROP TABLE IF EXISTS `pt_ride_groups`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -393,8 +603,17 @@ CREATE TABLE `pt_ride_groups` (
   PRIMARY KEY (`id`),
   KEY `idx_ride_id` (`ride_id`),
   CONSTRAINT `pt_ride_groups_ibfk_1` FOREIGN KEY (`ride_id`) REFERENCES `pt_rides` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='车次模型分组';
+) ENGINE=InnoDB AUTO_INCREMENT=24 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='车次模型分组';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_ride_groups`
+--
+
+--
+-- Table structure for table `pt_ride_members`
+--
+
 DROP TABLE IF EXISTS `pt_ride_members`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -415,6 +634,15 @@ CREATE TABLE `pt_ride_members` (
   CONSTRAINT `pt_ride_members_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `pt_users` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='上车记录';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_ride_members`
+--
+
+--
+-- Table structure for table `pt_rides`
+--
+
 DROP TABLE IF EXISTS `pt_rides`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -435,8 +663,17 @@ CREATE TABLE `pt_rides` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_share_token` (`share_token`),
   KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='车次';
+) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='车次';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `pt_rides`
+--
+
+--
+-- Table structure for table `pt_users`
+--
+
 DROP TABLE IF EXISTS `pt_users`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -459,13 +696,7 @@ CREATE TABLE `pt_users` (
   KEY `idx_phone` (`phone`)
 ) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='拼车平台用户';
 /*!40101 SET character_set_client = @saved_cs_client */;
-/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
-/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
-/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
-/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-
+--
+-- Dumping data for table `pt_users`
+--
