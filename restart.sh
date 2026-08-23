@@ -6,9 +6,9 @@
 #   sh restart.sh          # 用最新代码重建镜像 → 重建容器 → 等健康检查通过
 #
 # 做三件事：
-#   1. 校验 .env.docker 存在（真实配置，缺失直接拒绝）
-#   2. docker compose up -d --build（重建镜像 + 重建容器）
-#   3. 轮询容器健康状态直到 healthy（最多 90s）
+#   1. 自动探测 compose 命令（docker compose v2 / docker-compose v1）
+#   2. 校验 .env.docker 存在 + compose 配置合法
+#   3. docker compose up -d --build（重建镜像 + 重建容器）并等健康检查通过
 #
 # 前置：Docker 已启动；server/ 下已有 .env.docker（cp .env.docker.example 填真实值）
 #
@@ -22,7 +22,21 @@ COMPOSE_FILE="docker-compose.yml"
 TIMEOUT_SEC=90
 POLL_INTERVAL=3
 
-# ---- 1. 校验配置文件 ----
+# ---- 1. 探测 compose 命令 ----
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif docker-compose --version >/dev/null 2>&1; then
+  COMPOSE="docker-compose"
+else
+  echo "❌ 未找到 docker compose（v2）或 docker-compose（v1）。"
+  echo "   请先安装："
+  echo "     apt-get install docker-compose-plugin   # Docker v2 插件"
+  echo "     或 apt-get install docker-compose        # 独立 v1 二进制"
+  exit 1
+fi
+echo "==> 使用 compose 命令：$COMPOSE"
+
+# ---- 2. 校验配置文件 ----
 if [ ! -f ".env.docker" ]; then
   echo "❌ 缺少 .env.docker（生产真实配置）。"
   echo "   请先执行：cp .env.docker.example .env.docker 并填入真实密钥。"
@@ -34,15 +48,15 @@ if [ ! -f "$COMPOSE_FILE" ]; then
   exit 1
 fi
 
-# ---- 2. 重建镜像并重启容器 ----
 echo "==> 校验 compose 配置..."
-docker compose config --quiet
+$COMPOSE config -q
 echo "    ✓ 配置合法"
 
+# ---- 3. 重建镜像并重启容器 ----
 echo "==> 重建镜像并重启容器..."
-docker compose up -d --build
+$COMPOSE up -d --build
 
-# ---- 3. 等待健康检查通过 ----
+# ---- 4. 等待健康检查通过 ----
 echo "==> 等待容器健康（最多 ${TIMEOUT_SEC}s）..."
 elapsed=0
 status="starting"
@@ -75,5 +89,5 @@ fi
 echo ""
 echo "✅ 部署完成。"
 echo "   健康检查：curl http://localhost:14001/api/health"
-echo "   容器状态：docker compose ps"
-echo "   实时日志：docker compose logs -f backend"
+echo "   容器状态：$COMPOSE ps"
+echo "   实时日志：$COMPOSE logs -f backend"
