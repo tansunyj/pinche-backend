@@ -1,20 +1,21 @@
 # pinche-backend Docker 编排（仅后端）
-# MySQL / Redis 使用外部实例，经 .env.docker 环境变量连接（网关与后端共用这套基础设施）。
+# MySQL / Redis 使用宿主机上的外部实例，经 .env.docker 环境变量连接。
+#
+# 网络策略：network_mode: host —— 容器与宿主机共享网络栈。
+#   - 容器内 127.0.0.1 即宿主机，直接连本机 MySQL(3306)/Redis(6379)，
+#     无需改 MySQL/Redis 的 bind-address，也无需映射公网端口 → 零暴露。
+#   - 用 host 模式后不再需要 ports 映射（应用 HOST=0.0.0.0 直监听宿主机 14001），
+#     也不再需要 extra_hosts（host.docker.internal 在这模式下无意义）。
 services:
   backend:
     build: .
     image: pinche-backend:latest
     container_name: pinche-backend
     restart: unless-stopped
-    ports:
-      - "14001:14001"
-    # Linux 原生 Docker 没有 Docker Desktop 的 host.docker.internal 魔法域名，
-    # 用 host-gateway 把它映射到宿主机，容器内才能连到宿主 MySQL/Redis。
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     environment:
       - NODE_ENV=production
-      # 容器内必须监听所有网卡，否则端口映射后外部访问不到（代码默认 127.0.0.1）
+      # host 模式下监听所有网卡，14001 直接在宿主机上（等价于 ports 映射）
       - HOST=0.0.0.0
       - PORT=14001
     env_file:
