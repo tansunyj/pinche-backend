@@ -1,0 +1,26 @@
+# Dependencies / build output
+node_modules
+dist
+dist-ssr
+
+# Secrets — 绝不进构建上下文/镜像（真实密钥在 .env.development / .env.docker）
+.env
+.env.*
+admin_token.txt
+
+# VCS
+.git
+.gitignore
+
+# Legacy 旧项目（自带 Docker 文件，不属于本服务）
+legacy
+
+# Logs / runtime
+logs
+tmp
+*.log
+
+# 文档无需进镜像
+docs
+*.md
+!README.md

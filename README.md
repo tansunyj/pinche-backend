@@ -8,6 +8,7 @@
 
 ## 目录
 
+- [相关仓库](#相关仓库)
 - [项目简介](#项目简介)
 - [技术栈](#技术栈)
 - [系统架构](#系统架构)
@@ -15,11 +16,26 @@
 - [API 概览](#api-概览)
 - [定时任务](#定时任务)
 - [快速开始](#快速开始)
+- [Docker 部署](#docker-部署)
 - [脚本](#脚本)
 - [环境变量](#环境变量)
 - [目录结构](#目录结构)
 - [开发联调](#开发联调)
 - [English](#english)
+
+---
+
+## 相关仓库
+
+本平台共分 **3 个子项目**，各对应一个独立 Git 仓库：
+
+| 子项目（GitHub 仓库名） | 说明 | Git 地址 |
+| ------ | ---- | -------- |
+| `pinche-frontend` | 前端 | `https://github.com/tansunyj/pinche-frontend.git` |
+| `pinche-backend` | 后端服务 | `https://github.com/tansunyj/pinche-backend.git` |
+| `pinche-gateway` | 网关代理 | `https://github.com/tansunyj/pinche-gateway.git` |
+
+> 本仓库是其中的 **`pinche-backend`（后端服务）** 子项目（本地目录 `server`）。三个仓库相互独立，需分别 `git clone` / `git push`；跨仓库协作时各自独立提交、互不影响。
 
 ---
 
@@ -254,6 +270,47 @@ curl http://127.0.0.1:14001/api/health
 ```
 .env.{NODE_ENV}.local  →  .env.{NODE_ENV}  →  .env.local  →  .env
 ```
+
+---
+
+## Docker 部署
+
+本仓库提供**生产多阶段镜像**（`npm ci` → tsc 编译 → 只装生产依赖跑 `node dist/index.js`，非 root 运行）与 docker-compose 编排（**仅后端**；MySQL / Redis 用外部实例，经环境变量连接，与网关共用）。
+
+```bash
+# 1. 准备环境变量（真实密钥只放本地 .env.docker，已被 .gitignore 忽略，不提交）
+cp .env.docker.example .env.docker
+#    编辑 .env.docker：MYSQL_HOST / REDIS_URL 指向外部 MySQL/Redis，
+#    JWT_SECRET 等密钥改为 ≥16 位随机串；HOST 必须为 0.0.0.0
+
+# 2. 构建并启动
+docker compose up -d --build
+
+# 3. 查看状态 / 日志 / 停止
+docker compose ps
+docker compose logs -f backend
+docker compose down
+
+# 单独构建镜像运行（不用 compose）
+docker build -t pinche-backend .
+docker run -d -p 14001:14001 --env-file .env.docker --name pinche-backend pinche-backend
+
+# 4. 健康检查
+curl http://localhost:14001/api/health
+```
+
+**Docker 关键环境变量**：
+
+| 变量 | 必填 | 说明 |
+| ---- | ---- | ---- |
+| `HOST` | 是 | 必须 `0.0.0.0`（代码默认 `127.0.0.1`，容器内不设则端口映射后访问不到） |
+| `REDIS_URL` | 是 | 缺失则启动直接报错；本机 Docker 用 `redis://host.docker.internal:6379` |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` | 是 | 指向外部 MySQL；本机 Docker 用 `host.docker.internal`，服务器用实际 IP |
+| `GATEWAY_DB` / `CARPOOL_DB` | 是 | 必须 `pt_carpool`（代码默认 `GATEWAY_DB=silievo`，不设会连错库名） |
+| `JWT_SECRET` / `REFRESH_TOKEN_SECRET` / `ADMIN_JWT_SECRET` | 是 | ≥16 位随机串 |
+| `CORS_ORIGIN` | 按需 | 线上前端实际地址 |
+
+> 镜像内以非 root 用户运行；`HEALTHCHECK` 每 30s 探测 `/api/health`。真实密钥只存在于本地 `.env.docker`；`.dockerignore` 已排除 `.env*`、`admin_token.txt`，密钥不会进入镜像或构建上下文。
 
 ---
 

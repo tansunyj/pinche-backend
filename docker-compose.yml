@@ -1,0 +1,18 @@
+# pinche-backend Docker 编排（仅后端）
+# MySQL / Redis 使用外部实例，经 .env.docker 环境变量连接（网关与后端共用这套基础设施）。
+services:
+  backend:
+    build: .
+    image: pinche-backend:latest
+    container_name: pinche-backend
+    restart: unless-stopped
+    ports:
+      - "14001:14001"
+    environment:
+      - NODE_ENV=production
+      # 容器内必须监听所有网卡，否则端口映射后外部访问不到（代码默认 127.0.0.1）
+      - HOST=0.0.0.0
+      - PORT=14001
+    env_file:
+      # 真实密钥放本地 .env.docker（已 gitignore），模板见 .env.docker.example
+      - .env.docker

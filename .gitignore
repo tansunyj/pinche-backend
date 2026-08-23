@@ -17,6 +17,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.docker.example
 
 # Runtime / tokens
 admin_token.txt
