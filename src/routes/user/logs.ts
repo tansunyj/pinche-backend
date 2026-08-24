@@ -20,10 +20,10 @@ const QUOTA_PER_YUAN = 100000;
 // 对外映射：status←status，cost_points←quota_consumed，cost_amount←quota_consumed/QUOTA_PER_YUAN，
 //          discount←price_markup，prompt_tokens/completion_tokens/billing_detail 原样透传
 const LOG_SELECT = `
-  SELECT id, request_id, model, channel_name, status, quota_consumed,
-         latency_ms, error_msg, created_at,
-         prompt_tokens, completion_tokens, price_markup, billing_detail
-  FROM proxy_logs
+  SELECT l.id, l.request_id, l.token_name, l.model, l.channel_name, l.status,
+         l.quota_consumed, l.latency_ms, l.error_msg, l.created_at,
+         l.prompt_tokens, l.completion_tokens, l.price_markup, l.billing_detail
+  FROM proxy_logs l
 `;
 
 router.get("/", async (req: Request, res: Response) => {
@@ -33,15 +33,27 @@ router.get("/", async (req: Request, res: Response) => {
     const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize) || 20));
     const offset = (page - 1) * pageSize;
 
-    const where = "WHERE user_id = ?";
+    const { model, token_name, status, start_date, end_date } = req.query;
+
+    const where: string[] = ["l.user_id = ?"];
     const params: any[] = [userId];
+    if (model) { where.push("l.model LIKE ?"); params.push(`%${model}%`); }
+    if (token_name) { where.push("l.token_name LIKE ?"); params.push(`%${token_name}%`); }
+    if (status) { where.push("l.status = ?"); params.push(status); }
+    if (start_date) { where.push("l.created_at >= ?"); params.push(start_date); }
+    if (end_date) {
+      // 纯日期(YYYY-MM-DD)视为当天截止;带时间则原样比较
+      where.push("l.created_at <= ?");
+      params.push(/^\d{4}-\d{2}-\d{2}$/.test(String(end_date)) ? `${end_date} 23:59:59` : end_date);
+    }
+    const whereClause = `WHERE ${where.join(" AND ")}`;
 
     // execute 返回 [rows, fields]，Promise.all 后每项再解一层取 rows
     // LIMIT/OFFSET 为受约束的数字，直接内联（mysql2 execute 的 ? 占位符在 LIMIT 上会报错）
     const [[countRows], [logRows]] = await Promise.all([
-      gatewayPool.execute(`SELECT COUNT(*) AS total FROM proxy_logs ${where}`, params),
+      gatewayPool.execute(`SELECT COUNT(*) AS total FROM proxy_logs l ${whereClause}`, params),
       gatewayPool.execute(
-        `${LOG_SELECT} ${where} ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+        `${LOG_SELECT} ${whereClause} ORDER BY l.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
         params
       ),
     ]);
@@ -52,6 +64,7 @@ router.get("/", async (req: Request, res: Response) => {
     const list = (rows as any[]).map((r) => ({
       id: r.id,
       request_id: r.request_id,
+      token_name: r.token_name,
       model: r.model,
       channel_name: r.channel_name,
       status: r.status,

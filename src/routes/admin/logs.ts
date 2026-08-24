@@ -46,7 +46,11 @@ router.get("/", async (req: Request, res: Response) => {
     }
     if (status) { where.push("l.status = ?"); params.push(status); }
     if (start_date) { where.push("l.created_at >= ?"); params.push(start_date); }
-    if (end_date) { where.push("l.created_at <= ?"); params.push(end_date); }
+    if (end_date) {
+      // 纯日期(YYYY-MM-DD)视为当天截止;带时间则原样比较
+      where.push("l.created_at <= ?");
+      params.push(/^\d{4}-\d{2}-\d{2}$/.test(String(end_date)) ? `${end_date} 23:59:59` : end_date);
+    }
     const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     const fromTable =
