@@ -36,6 +36,7 @@ import userStatsRoutes from "./routes/user/stats";
 import ridesRoutes from "./routes/rides";
 import userRidesRoutes from "./routes/user/rides";
 import userDiscountsRoutes from "./routes/user/discounts";
+import userChannelsRoutes from "./routes/user/channels";
 import userRechargeRoutes from "./routes/recharge";
 
 // ---- 管理端路由 ----
@@ -113,6 +114,8 @@ app.use("/api/user/stats", userStatsRoutes);
 // 拼车业务（用户端）
 app.use("/api/user/rides", userRidesRoutes);
 app.use("/api/user/discounts", userDiscountsRoutes);
+// 渠道只读视图（用户端，登录可见；字段白名单，不返回任何 API Key）
+app.use("/api/user/channels", userChannelsRoutes);
 
 // 充值（支付宝回调在 recharge/callback，勿重复挂载）
 app.use("/api/recharge", userRechargeRoutes);

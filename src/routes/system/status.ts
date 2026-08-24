@@ -41,7 +41,7 @@ const SIDEBAR_MODULES_ADMIN = {
 
 /** 顶部导航门控：与前端 DEFAULT_HEADER_NAV_MODULES 一致
  *  拼车平台暂不提供 LLM 排行榜 / 关于页，入口隐藏；
- *  文档菜单保留（内容后续编写，先指向 /docs 占位页） */
+ *  文档菜单指向站内 /docs 接入文档页（如配置 docs_link 则优先外部链接） */
 const HEADER_NAV_MODULES = {
   home: true,
   console: true,
@@ -60,6 +60,9 @@ router.get("/", (_req: Request, res: Response) => {
       version: "1.0.0",
       system_name: process.env.SYSTEM_NAME || "Token 拼车平台",
       logo: process.env.SYSTEM_LOGO || "",
+      // 网关地址:供前端 API 接入文档 / CC Switch / 聊天预设解析 Base URL。
+      // 生产环境用 SERVER_ADDRESS 环境变量配置(如 https://api.example.com);留空则前端回退本地默认。
+      server_address: process.env.SERVER_ADDRESS || "",
       footer_html: "",
       demo_site_enabled: false,
       display_token_stat_enabled: true,

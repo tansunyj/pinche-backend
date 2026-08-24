@@ -9,6 +9,7 @@
 ## 目录
 
 - [相关仓库](#相关仓库)
+- [加入交流群](#加入交流群)
 - [项目简介](#项目简介)
 - [技术栈](#技术栈)
 - [系统架构](#系统架构)
@@ -36,6 +37,17 @@
 | `pinche-gateway` | 网关代理 | `https://github.com/tansunyj/pinche-gateway.git` |
 
 > 本仓库是其中的 **`pinche-backend`（后端服务）** 子项目（本地目录 `server`）。三个仓库相互独立，需分别 `git clone` / `git push`；跨仓库协作时各自独立提交、互不影响。
+
+---
+
+## 加入交流群
+
+群号：**663707675**
+
+![Token 拼车群](token拼车群.png)
+
+> 扫码或搜索群号加入 **Token 拼车平台交流群**，获取平台动态、使用答疑与优惠信息。
+> Scan the QR code / search group **663707675** to join the Token Carpool community.
 
 ---
 
@@ -81,7 +93,7 @@
           │
       ┌───┴───────────────────────────┐
       ▼                               ▼
- MySQL：pt_carpool（21 张表）       Redis
+ MySQL：pt_carpool（22 张表）       Redis
 （双连接池，均指向同一库）      （验证码 / refresh token /
                                      到账锁 / token 黑名单 / 余额缓存）
       │
