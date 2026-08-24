@@ -21,3 +21,10 @@ services:
     env_file:
       # 真实密钥放本地 .env.docker（已 gitignore），模板见 .env.docker.example
       - .env.docker
+    logging:
+      # 日志轮转：单文件上限 20MB、保留最近 3 个文件，防止 docker logs 无限增长撑满磁盘
+      # （json-file 驱动默认无大小上限，生产必配）
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: 3
