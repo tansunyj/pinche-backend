@@ -22,6 +22,13 @@ export interface VerifiedNotify {
 
 const GATEWAY = process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do";
 
+/** 单次网关请求超时(ms)：避免 fetch 悬挂拖住 /status 轮询与对账 cron */
+const GATEWAY_TIMEOUT_MS = Math.max(1000, Number(process.env.ALIPAY_GATEWAY_TIMEOUT_MS || 8000));
+/** 网关请求总尝试次数(含首次)：支付宝网络抖动偶发，做一次轻量重试 */
+const GATEWAY_RETRIES = Math.max(1, Number(process.env.ALIPAY_RETRIES || 2));
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export class AlipayProvider {
   readonly name = "alipay" as const;
 
@@ -68,15 +75,7 @@ export class AlipayProvider {
         timeout_express: "15m", // 15 分钟未支付自动关闭
       }),
     };
-    params.sign = this._signRsa2(params);
-
-    const response = await fetch(GATEWAY, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=utf-8" },
-      body: new URLSearchParams(params).toString(),
-    });
-    const rawText = await response.text();
-    const result = JSON.parse(rawText);
+    const result = await this._postGateway(params);
     const alipayResp = result.alipay_trade_precreate_response;
     if (!alipayResp || alipayResp.code !== "10000") {
       throw new Error(`支付宝下单失败: ${alipayResp?.msg || "未知"} (${alipayResp?.sub_msg || ""})`);
@@ -135,14 +134,7 @@ export class AlipayProvider {
       version: "1.0",
       biz_content: JSON.stringify({ out_trade_no: orderNo }),
     };
-    params.sign = this._signRsa2(params);
-
-    const response = await fetch(GATEWAY, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=utf-8" },
-      body: new URLSearchParams(params).toString(),
-    });
-    const result = (await response.json()) as any;
+    const result = await this._postGateway(params);
     const alipayResp = result.alipay_trade_query_response;
     if (!alipayResp || alipayResp.code !== "10000") return { status: "other" };
     const tradeStatus = alipayResp.trade_status;
@@ -150,6 +142,43 @@ export class AlipayProvider {
       status: tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED" ? "paid" : "other",
       thirdPartyNo: alipayResp.trade_no,
     };
+  }
+
+  /** 统一打网关：内部完成 RSA2 签名、超时与网络级重试。
+   *  仅 fetch 抛错/超时(网络层)才重试；支付宝业务错误以 code 返回，不走重试。 */
+  private async _postGateway(params: Record<string, string>): Promise<any> {
+    params.sign = this._signRsa2(params);
+    const body = new URLSearchParams(params).toString();
+
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= GATEWAY_RETRIES; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), GATEWAY_TIMEOUT_MS);
+        try {
+          const response = await fetch(GATEWAY, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded; charset=utf-8" },
+            body,
+            signal: controller.signal,
+          });
+          const text = await response.text();
+          return JSON.parse(text);
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (e) {
+        lastErr = e;
+        if (attempt < GATEWAY_RETRIES) {
+          const err = e as Error & { cause?: Error };
+          console.warn(
+            `[Alipay] 网关请求失败(第 ${attempt}/${GATEWAY_RETRIES} 次): ${err.message}${err.cause ? ` (原因: ${err.cause.message})` : ""}，重试`
+          );
+          await sleep(300 * attempt);
+        }
+      }
+    }
+    throw lastErr;
   }
 
   // ============ RSA2 签名工具 ============

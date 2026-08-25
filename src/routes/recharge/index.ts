@@ -138,11 +138,22 @@ router.post("/create", userAuth, async (req: Request, res: Response) => {
       [orderNo, ptUserId, tierId, amountYuan, quota]
     );
 
-    const result = await alipay.createPayment({
-      orderNo,
-      amountYuan,
-      subject: `拼车充值 ¥${amountYuan}`,
-    });
+    let result;
+    try {
+      result = await alipay.createPayment({
+        orderNo,
+        amountYuan,
+        subject: `拼车充值 ¥${amountYuan}`,
+      });
+    } catch (err) {
+      // 下单失败：关闭流水，避免留下永久 PENDING 死单（对账 cron 会每分钟反复查）
+      await cpQuery("UPDATE pt_payments SET status = 'CLOSED' WHERE order_no = ? AND status = 'PENDING'", [orderNo]);
+      throw err;
+    }
+    // 真实下单成功 → 写回支付宝 out_trade_no，供对账/回调使用
+    if (result.providerPrepayId) {
+      await cpQuery("UPDATE pt_payments SET out_trade_no = ? WHERE order_no = ?", [result.providerPrepayId, orderNo]);
+    }
 
     res.json({
       orderNo,
@@ -189,7 +200,9 @@ router.get("/status", userAuth, async (req: Request, res: Response) => {
       try {
         await processPendingCreditTasks(10);
       } catch (e) {
-        console.error(`[Recharge] 触发到账失败 ${orderNo}:`, (e as Error).message);
+        // 只打 .message 会吞掉真实原因(undici 的 fetch failed 底层在 e.cause 里)
+        const err = e as Error & { cause?: Error };
+        console.error(`[Recharge] 触发到账失败 ${orderNo}: ${err.message}${err.cause ? ` (原因: ${err.cause.message})` : ""}`);
       }
       const pays2 = await cpQuery("SELECT status FROM pt_payments WHERE id = ? LIMIT 1", [payment.id]);
       status = (Array.isArray(pays2) && pays2[0]?.status) || status;
@@ -208,7 +221,8 @@ router.get("/status", userAuth, async (req: Request, res: Response) => {
             await processPendingCreditTasks(10);
           }
         } catch (e) {
-          console.error(`[Recharge] 查询订单 ${orderNo} 失败:`, (e as Error).message);
+          const err = e as Error & { cause?: Error };
+          console.error(`[Recharge] 查询订单 ${orderNo} 失败: ${err.message}${err.cause ? ` (原因: ${err.cause.message})` : ""}`);
         }
         const pays2 = await cpQuery("SELECT status FROM pt_payments WHERE id = ? LIMIT 1", [payment.id]);
         status = (Array.isArray(pays2) && pays2[0]?.status) || status;

@@ -22,7 +22,8 @@ const QUOTA_PER_YUAN = 100000;
 const LOG_SELECT = `
   SELECT l.id, l.request_id, l.token_name, l.model, l.channel_name, l.status,
          l.quota_consumed, l.latency_ms, l.error_msg, l.created_at,
-         l.prompt_tokens, l.completion_tokens, l.price_markup, l.billing_detail
+         l.prompt_tokens, l.completion_tokens, l.price_markup, l.billing_detail,
+         l.discount_ride_ids, l.original_quota
   FROM proxy_logs l
 `;
 
@@ -75,6 +76,9 @@ router.get("/", async (req: Request, res: Response) => {
       prompt_tokens: Number(r.prompt_tokens) || 0,
       completion_tokens: Number(r.completion_tokens) || 0,
       discount: r.price_markup == null ? null : Number(r.price_markup),
+      discount_ride_ids: r.discount_ride_ids ?? null,
+      original_quota: Number(r.original_quota) || 0,
+      saved_quota: Math.max((Number(r.original_quota) || 0) - (Number(r.quota_consumed) || 0), 0),
       billing_detail: r.billing_detail ?? null,
       created_at: r.created_at,
     }));

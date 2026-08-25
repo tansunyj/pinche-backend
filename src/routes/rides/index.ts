@@ -126,18 +126,31 @@ router.get("/:token", async (req: Request, res: Response) => {
       joined = Array.isArray(ms) && ms.length > 0;
     }
 
+    // §6.3 该车次累计节省额度（ride 维度，历史累计）
+    const savedRows = await cpQuery(
+      `SELECT COALESCE(SUM(metric_value),0) AS saved FROM unified_stats
+       WHERE dim_type='ride' AND dim1_key=? AND metric_name='ride_saved_quota' AND stat_hour=-1`,
+      [`ride:${ride.id}`]
+    );
+    const current = Number(ride.current_count);
+    const min = Number(ride.min_count);
+
     res.json({
       ride: {
         id: ride.id,
         name: ride.name,
         description: ride.description,
         status: ride.status,
-        currentCount: Number(ride.current_count),
-        minCount: Number(ride.min_count),
+        currentCount: current,
+        minCount: min,
         startTime: ride.start_time,
         endTime: ride.end_time,
         establishedAt: ride.established_at,
         createdAt: ride.created_at,
+        // §6.3 达成与节省：进度条 + 解锁剩余 + 累计节省额度
+        progress: min > 0 ? Math.min(100, Math.round((current / min) * 100)) : 0,
+        remainingToUnlock: Math.max(min - current, 0),
+        savedQuota: Number((savedRows as any[])[0]?.saved) || 0,
       },
       groups,
       joined,

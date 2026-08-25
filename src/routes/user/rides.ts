@@ -21,29 +21,44 @@ router.get("/", async (req: Request, res: Response) => {
               r.status AS ride_status, r.current_count, r.min_count,
               r.established_at, r.share_token,
               rm.joined_at,
-              (SELECT MIN(discount_rate) FROM pt_ride_groups g WHERE g.ride_id = r.id) AS min_discount_rate
+              (SELECT MIN(discount_rate) FROM pt_ride_groups g WHERE g.ride_id = r.id) AS min_discount_rate,
+              COALESCE(u.saved, 0) AS saved_quota
        FROM pt_ride_members rm
        JOIN pt_rides r ON r.id = rm.ride_id
+       LEFT JOIN (
+         SELECT dim1_key, SUM(metric_value) AS saved
+         FROM unified_stats
+         WHERE dim_type='ride' AND metric_name='ride_saved_quota' AND stat_hour=-1
+         GROUP BY dim1_key
+       ) u ON u.dim1_key = CONCAT('ride:', r.id)
        WHERE rm.user_id = ? AND rm.status = 'ACTIVE'
        ORDER BY rm.joined_at DESC`,
       [ptUserId]
     );
 
     res.json({
-      rides: (Array.isArray(rows) ? rows : []).map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        startTime: r.start_time,
-        endTime: r.end_time,
-        rideStatus: r.ride_status,
-        currentCount: Number(r.current_count),
-        minCount: Number(r.min_count),
-        minDiscountRate: r.min_discount_rate === null ? null : Number(r.min_discount_rate),
-        establishedAt: r.established_at,
-        shareToken: r.share_token,
-        joinedAt: r.joined_at,
-      })),
+      rides: (Array.isArray(rows) ? rows : []).map((r: any) => {
+        const current = Number(r.current_count);
+        const min = Number(r.min_count);
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          startTime: r.start_time,
+          endTime: r.end_time,
+          rideStatus: r.ride_status,
+          currentCount: current,
+          minCount: min,
+          minDiscountRate: r.min_discount_rate === null ? null : Number(r.min_discount_rate),
+          establishedAt: r.established_at,
+          shareToken: r.share_token,
+          joinedAt: r.joined_at,
+          // §6.3 达成与节省：进度条 + 解锁剩余 + 该车次累计节省额度
+          progress: min > 0 ? Math.min(100, Math.round((current / min) * 100)) : 0,
+          remainingToUnlock: Math.max(min - current, 0),
+          savedQuota: Number(r.saved_quota) || 0,
+        };
+      }),
     });
   } catch (err) {
     console.error("My rides error:", err);
