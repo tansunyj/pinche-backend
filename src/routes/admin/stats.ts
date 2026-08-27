@@ -497,7 +497,7 @@ router.get("/rides/overview", async (_req: Request, res: Response) => {
           rideRequests: num(r.ride_requests),
           savedQuota: num(r.saved_quota),
           discountedRequests: num(r.discounted_requests),
-          discountRate: num(r.discount_rate) || 1,
+          discountRate: num(r.discount_rate), // SQL 已 COALESCE(...,1);真实 0(免费车次)不被 ||1 误兜底
         };
       }),
     });
@@ -533,6 +533,11 @@ router.get("/discounts/overview", async (_req: Request, res: Response) => {
       const row = (Array.isArray(rows) ? rows : []).find((r: any) => r.metric_name === name);
       return row ? num(row.v ?? row.metric_value) : 0;
     };
+    // 折扣率字段专用：区分「无统计(→null→1 原价)」与「真实 0(→免费)」——pick 会把两者都归 0
+    const pickOrNull = (rows: any[], name: string): number | null => {
+      const row = (Array.isArray(rows) ? rows : []).find((r: any) => r.metric_name === name);
+      return row ? num(row.v ?? row.metric_value) : null;
+    };
     const fmt = (rows: any[]) => {
       const requests = pick(rows, "requests");
       const discounted = pick(rows, "discounted_requests");
@@ -541,8 +546,8 @@ router.get("/discounts/overview", async (_req: Request, res: Response) => {
         discountedRequests: discounted,
         discountedRate: requests > 0 ? Math.round((discounted / requests) * 10000) / 100 : 0,
         savedQuota: pick(rows, "saved_quota"),
-        discountRate: pick(rows, "discount_rate") || 1,
-        discountRateMin: pick(rows, "discount_rate_min") || 1,
+        discountRate: pickOrNull(rows, "discount_rate") ?? 1,
+        discountRateMin: pickOrNull(rows, "discount_rate_min") ?? 1,
       };
     };
 

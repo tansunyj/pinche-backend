@@ -153,7 +153,7 @@ function validateGroups(groups: RideGroupInput[]): void {
   const seenModels = new Set<string>();
   for (const g of groups) {
     if (!g.models || g.models.length === 0) throw new RideError("INVALID_GROUPS", "每个折扣档位至少需要一个模型");
-    if (!(g.discountRate > 0 && g.discountRate <= 1)) {
+    if (!(g.discountRate >= 0 && g.discountRate <= 1)) {
       throw new RideError("INVALID_GROUPS", "折扣率必须在 0-1 之间");
     }
     for (const m of g.models) {
