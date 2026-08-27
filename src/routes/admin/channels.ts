@@ -108,7 +108,7 @@ router.get("/models", async (req: Request, res: Response) => {
 router.get("/channels", async (_req: Request, res: Response) => {
   try {
     const [rows] = await gatewayPool.execute(
-      `SELECT c.id, c.name, c.type, c.base_url, c.status, c.priority, c.weight,
+      `SELECT c.id, c.name, c.type, c.base_url, c.mask_url, c.status, c.priority, c.weight,
               c.token_lb_strategy, c.channel_code, c.api_key,
               (SELECT COUNT(*) FROM proxy_channel_models cm WHERE cm.channel_id = c.id AND cm.is_enabled = 1) AS model_count,
               (SELECT COUNT(*) FROM proxy_channel_tokens t WHERE t.channel_id = c.id) AS token_count
@@ -163,7 +163,7 @@ router.get("/capabilities", async (_req: Request, res: Response) => {
 
 // ============ 新增渠道 ============
 router.post("/channels", async (req: Request, res: Response) => {
-  const { name, type, base_url, priority, weight, token_lb_strategy, channel_code } = req.body || {};
+  const { name, type, base_url, mask_url, priority, weight, token_lb_strategy, channel_code } = req.body || {};
   const keys = normalizeKeys(req.body);
   if (!name || !base_url) {
     res.status(400).json({ error: "名称、Base URL 为必填项" });
@@ -183,10 +183,10 @@ router.post("/channels", async (req: Request, res: Response) => {
       const legacyApiKey = keys[0]?.api_key || "";
       const [r] = await conn.execute(
         `INSERT INTO proxy_channels
-           (name, type, base_url, api_key, priority, weight, token_lb_strategy, channel_code)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (name, type, base_url, mask_url, api_key, priority, weight, token_lb_strategy, channel_code)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          name, type || "openai", base_url, legacyApiKey,
+          name, type || "openai", base_url, mask_url ? 1 : 0, legacyApiKey,
           priority || 0, weight || 1,
           token_lb_strategy || "round_robin",
           channel_code || null,
@@ -230,7 +230,7 @@ router.put("/channels/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
   const body = req.body || {};
   const {
-    name, type, base_url, api_key, status, priority, weight,
+    name, type, base_url, mask_url, api_key, status, priority, weight,
     token_lb_strategy, channel_code,
   } = body;
   const replacingKeys = Array.isArray(body.api_keys);
@@ -263,6 +263,7 @@ router.put("/channels/:id", async (req: Request, res: Response) => {
       weight: weight !== undefined ? weight : channel.weight,
       token_lb_strategy: token_lb_strategy !== undefined ? token_lb_strategy : channel.token_lb_strategy,
       channel_code: channel_code !== undefined ? channel_code : channel.channel_code,
+      mask_url: mask_url !== undefined ? (mask_url ? 1 : 0) : channel.mask_url,
     };
 
     const conn = await gatewayPool.getConnection();
@@ -271,12 +272,12 @@ router.put("/channels/:id", async (req: Request, res: Response) => {
       await conn.execute(
         `UPDATE proxy_channels
             SET name=?, type=?, base_url=?, api_key=?, status=?, priority=?, weight=?,
-                token_lb_strategy=?, channel_code=?, updated_at=CURRENT_TIMESTAMP
+                token_lb_strategy=?, channel_code=?, mask_url=?, updated_at=CURRENT_TIMESTAMP
           WHERE id=?`,
         [
           after.name, after.type, after.base_url, after.api_key,
           after.status, after.priority, after.weight, after.token_lb_strategy,
-          after.channel_code, id,
+          after.channel_code, after.mask_url, id,
         ]
       );
       if (replacingKeys) {
