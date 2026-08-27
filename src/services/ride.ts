@@ -17,6 +17,9 @@ export class RideError extends Error {
   }
 }
 
+/** 上车方式：PUBLIC=乘客自行上车(默认) / ADMIN_ONLY=仅管理员拉人 */
+export type EnrollType = "PUBLIC" | "ADMIN_ONLY";
+
 export async function getRideGroups(rideId: number) {
   const groups = await cpQuery(
     "SELECT * FROM pt_ride_groups WHERE ride_id = ? ORDER BY display_order ASC, id ASC",
@@ -70,6 +73,11 @@ export async function joinRide(input: {
   const member = Array.isArray(members) && members.length > 0 ? members[0] : null;
   if (member && member.status === "ACTIVE") {
     return { already: true, rideName: ride.name };
+  }
+
+  // 管理员拉人型：乘客不能自行上车（含 KICKED 复活也仅能由管理员触发）
+  if (ride.enroll_type === "ADMIN_ONLY") {
+    throw new RideError("RIDE_ADMIN_ONLY", "该车次仅支持管理员添加成员");
   }
 
   // 3. 抢名额（条件更新防超卖：仅当 ACTIVE 才 +1；无满员上限）
@@ -167,8 +175,10 @@ export async function createRide(input: {
   minCount: number;
   groups: RideGroupInput[];
   adminId: number;
+  enrollType?: EnrollType;
 }): Promise<number> {
   const { name, description, startTime, endTime, minCount, groups, adminId } = input;
+  const enrollType: EnrollType = input.enrollType === "ADMIN_ONLY" ? "ADMIN_ONLY" : "PUBLIC";
 
   // —— 参数校验 ——
   if (!name || name.trim().length === 0) throw new RideError("INVALID_PARAMS", "车次名称必填");
@@ -178,15 +188,19 @@ export async function createRide(input: {
   validateTimeRange(startTime, endTime);
   validateGroups(groups);
 
+  // 管理员拉人型：忽略成团人数（创建即视为已成立，折扣随发车时间生效）
+  const effectiveMinCount = enrollType === "ADMIN_ONLY" ? 1 : minCount;
+  const establishedAt = enrollType === "ADMIN_ONLY" ? new Date() : null;
+
   // —— 分享 token 始终生成 ——
   const shareToken = await generateShareToken();
 
   // —— 事务写入（status 默认 PENDING 待上线） ——
   const rideId = await cpTransaction(async (conn) => {
     const [r] = await conn.execute(
-      `INSERT INTO pt_rides (name, description, min_count, start_time, end_time, status, share_token, created_by)
-       VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
-      [name.trim(), description || null, minCount, startTime || null, endTime || null, shareToken, adminId]
+      `INSERT INTO pt_rides (name, description, min_count, start_time, end_time, status, enroll_type, established_at, share_token, created_by)
+       VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)`,
+      [name.trim(), description || null, effectiveMinCount, startTime || null, endTime || null, enrollType, establishedAt, shareToken, adminId]
     );
     const newRideId = Number((r as any).insertId);
 
@@ -234,8 +248,12 @@ export async function updateRide(input: {
   minCount: number;
   status?: "PENDING" | "ACTIVE";
   groups: RideGroupInput[];
+  enrollType?: EnrollType;
 }): Promise<void> {
   const { rideId, name, description, startTime, endTime, minCount, status, groups } = input;
+  const enrollType: EnrollType = input.enrollType === "ADMIN_ONLY" ? "ADMIN_ONLY" : "PUBLIC";
+  // 管理员拉人型：强制 min_count=1（成团不设门槛）
+  const effectiveMinCount = enrollType === "ADMIN_ONLY" ? 1 : minCount;
 
   // —— 校验车次 ——
   const rides = await cpQuery("SELECT * FROM pt_rides WHERE id = ? LIMIT 1", [rideId]);
@@ -257,9 +275,9 @@ export async function updateRide(input: {
   await cpTransaction(async (conn) => {
     await conn.execute(
       `UPDATE pt_rides
-       SET name = ?, description = ?, min_count = ?, start_time = ?, end_time = ?
+       SET name = ?, description = ?, min_count = ?, start_time = ?, end_time = ?, enroll_type = ?
        WHERE id = ?`,
-      [name.trim(), description || null, minCount, startTime || null, endTime || null, rideId]
+      [name.trim(), description || null, effectiveMinCount, startTime || null, endTime || null, enrollType, rideId]
     );
 
     // 重建分组（先删后插）
@@ -307,6 +325,13 @@ export async function updateRide(input: {
        WHERE id = ? AND established_at IS NULL AND current_count >= min_count`,
       [rideId]
     );
+    // 管理员拉人型：无视人数，随时视为已成立（发车时间即折扣生效点）
+    if (enrollType === "ADMIN_ONLY") {
+      await conn.execute(
+        `UPDATE pt_rides SET established_at = COALESCE(established_at, NOW()) WHERE id = ?`,
+        [rideId]
+      );
+    }
   });
 }
 
@@ -358,4 +383,73 @@ export async function kickRideMember(rideId: number, ptUserId: number): Promise<
   await cpQuery("UPDATE pt_rides SET current_count = GREATEST(current_count - 1, 0) WHERE id = ?", [rideId]);
 
   return { ok: true, message: "已请出该用户" };
+}
+
+/**
+ * 管理员手动加人（幂等，镜像 joinRide 的成员写入模式）：
+ *   - 允许在 ACTIVE / PENDING 车次上加人；已 CLOSED/EXPIRED/CANCELLED 拒绝
+ *   - 新成员 INSERT IGNORE；KICKED 成员复活为 ACTIVE；已在车上的跳过
+ *   - 名额 current_count 按实际新增数递增；达到 min_count 锁存 established_at
+ * 返回 added（本次新增数）、skipped（已在车上）、unknown（不存在的 userId）
+ */
+export async function addRideMembers(
+  rideId: number,
+  userIds: number[]
+): Promise<{ added: number; skipped: number[]; unknown: number[] }> {
+  const clean = [...new Set(userIds.map(Number))].filter((id) => Number.isInteger(id) && id > 0);
+  if (clean.length === 0) throw new RideError("INVALID_PARAMS", "请至少选择一个用户");
+
+  // 1. 校验车次
+  const rides = await cpQuery("SELECT * FROM pt_rides WHERE id = ? LIMIT 1", [rideId]);
+  const ride = Array.isArray(rides) ? rides[0] : null;
+  if (!ride) throw new RideError("RIDE_NOT_FOUND", "车次不存在");
+  if (["CLOSED", "EXPIRED", "CANCELLED"].includes(ride.status)) {
+    throw new RideError("RIDE_CLOSED", "车次已关闭/已结束/已取消，不可添加成员");
+  }
+
+  // 2. 校验用户存在（过滤未知 userId）
+  const placeholders = clean.map(() => "?").join(",");
+  const userRows = await cpQuery(`SELECT id FROM pt_users WHERE id IN (${placeholders})`, clean);
+  const knownIds = new Set((Array.isArray(userRows) ? userRows : []).map((u: any) => Number(u.id)));
+  const unknown = clean.filter((id) => !knownIds.has(id));
+  const validIds = clean.filter((id) => knownIds.has(id));
+
+  // 3. 逐个写入（INSERT IGNORE 判重 + KICKED 复活，与 joinRide 一致）
+  let added = 0;
+  const skipped: number[] = [];
+  for (const uid of validIds) {
+    const r = await cpQuery("INSERT IGNORE INTO pt_ride_members (ride_id, user_id) VALUES (?, ?)", [rideId, uid]);
+    const affected = Number((r as any).affectedRows || 0);
+    if (affected === 0) {
+      // 已存在记录：仅 KICKED 可复活为 ACTIVE，否则视为已在车上
+      const ms = await cpQuery(
+        "SELECT status FROM pt_ride_members WHERE ride_id = ? AND user_id = ? LIMIT 1",
+        [rideId, uid]
+      );
+      const m = Array.isArray(ms) && ms.length > 0 ? ms[0] : null;
+      if (m && m.status === "KICKED") {
+        await cpQuery(
+          "UPDATE pt_ride_members SET status = 'ACTIVE', kicked_at = NULL WHERE ride_id = ? AND user_id = ?",
+          [rideId, uid]
+        );
+        added++;
+      } else {
+        skipped.push(uid);
+      }
+    } else {
+      added++;
+    }
+  }
+
+  // 4. 名额递增 + 成团锁存（一次性）
+  if (added > 0) {
+    await cpQuery("UPDATE pt_rides SET current_count = current_count + ? WHERE id = ?", [added, rideId]);
+    await cpQuery(
+      `UPDATE pt_rides SET established_at = COALESCE(established_at, NOW())
+       WHERE id = ? AND established_at IS NULL AND current_count >= min_count`,
+      [rideId]
+    );
+  }
+
+  return { added, skipped, unknown };
 }

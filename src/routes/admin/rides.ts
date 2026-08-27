@@ -7,13 +7,14 @@
  *   PUT    /:id                    编辑车次（仅超管，updateRide；重建分组并重写成员折扣）
  *   POST   /:id/status             上线/待上线开关（仅超管，setRideStatus）
  *   POST   /:id/close              关闭车次并撤销全部折扣（仅超管）
+ *   POST   /:id/members            添加成员（仅超管，addRideMembers，body:{userIds:[]}）
  *   POST   /:id/members/:userId/kick  请出成员并撤销其折扣（仅超管）
  */
 
 import { Router, Request, Response } from "express";
 import { cpQuery } from "../../config/db";
 import { adminAuth, requireSuperAdmin } from "../../middlewares/adminAuth";
-import { createRide, closeRide, getRideGroups, kickRideMember, setRideStatus, updateRide, RideError } from "../../services/ride";
+import { createRide, closeRide, getRideGroups, kickRideMember, setRideStatus, updateRide, addRideMembers, RideError } from "../../services/ride";
 
 const router = Router();
 router.use(adminAuth);
@@ -53,6 +54,7 @@ router.get("/", async (req: Request, res: Response) => {
         name: r.name,
         description: r.description,
         status: r.status,
+        enrollType: r.enroll_type,
         currentCount: Number(r.current_count),
         minCount: Number(r.min_count),
         memberCount: Number(r.member_count || r.current_count),
@@ -133,6 +135,7 @@ router.get("/:id", async (req: Request, res: Response) => {
         name: ride.name,
         description: ride.description,
         status: ride.status,
+        enrollType: ride.enroll_type,
         currentCount: Number(ride.current_count),
         minCount: Number(ride.min_count),
         startTime: ride.start_time,
@@ -161,6 +164,7 @@ router.post("/", requireSuperAdmin, async (req: Request, res: Response) => {
       endTime: body.endTime ? new Date(body.endTime) : null,
       minCount: Number(body.minCount),
       groups: Array.isArray(body.groups) ? body.groups : [],
+      enrollType: body.enrollType === "ADMIN_ONLY" ? "ADMIN_ONLY" : "PUBLIC",
       adminId: req.admin!.adminId,
     });
     res.json({ success: true, id: rideId, message: "发车成功（待上线）" });
@@ -187,6 +191,7 @@ router.put("/:id", requireSuperAdmin, async (req: Request, res: Response) => {
       minCount: Number(body.minCount),
       status: body.status === "PENDING" || body.status === "ACTIVE" ? body.status : undefined,
       groups: Array.isArray(body.groups) ? body.groups : [],
+      enrollType: body.enrollType === "ADMIN_ONLY" ? "ADMIN_ONLY" : "PUBLIC",
     });
     res.json({ success: true, message: "车次已更新" });
   } catch (err: any) {
@@ -227,6 +232,33 @@ router.post("/:id/close", requireSuperAdmin, async (req: Request, res: Response)
   } catch (err) {
     console.error("Admin close ride error:", err);
     res.status(500).json({ error: "关闭车次失败" });
+  }
+});
+
+// ============ 添加成员（所有类型车次均可；管理员拉人型的唯一上车方式） ============
+router.post("/:id/members", requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const userIds = Array.isArray(body.userIds) ? body.userIds : [];
+    const result = await addRideMembers(Number(req.params.id), userIds);
+    const parts: string[] = [];
+    if (result.added > 0) parts.push(`已添加 ${result.added} 名成员`);
+    if (result.skipped.length > 0) parts.push(`${result.skipped.length} 名已在车上`);
+    if (result.unknown.length > 0) parts.push(`${result.unknown.length} 个用户不存在`);
+    res.json({
+      success: true,
+      message: parts.length ? parts.join("，") : "未添加任何成员",
+      added: result.added,
+      skipped: result.skipped,
+      unknown: result.unknown,
+    });
+  } catch (err: any) {
+    if (err instanceof RideError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    console.error("Admin add members error:", err);
+    res.status(500).json({ error: "添加成员失败" });
   }
 });
 

@@ -18,7 +18,7 @@ router.get("/", async (req: Request, res: Response) => {
     }
     const rows = await cpQuery(
       `SELECT r.id, r.name, r.description, r.start_time, r.end_time,
-              r.status AS ride_status, r.current_count, r.min_count,
+              r.status AS ride_status, r.enroll_type, r.current_count, r.min_count,
               r.established_at, r.share_token,
               rm.joined_at,
               (SELECT MIN(discount_rate) FROM pt_ride_groups g WHERE g.ride_id = r.id) AS min_discount_rate,
@@ -47,6 +47,7 @@ router.get("/", async (req: Request, res: Response) => {
           startTime: r.start_time,
           endTime: r.end_time,
           rideStatus: r.ride_status,
+          enrollType: r.enroll_type,
           currentCount: current,
           minCount: min,
           minDiscountRate: r.min_discount_rate === null ? null : Number(r.min_discount_rate),

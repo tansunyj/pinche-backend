@@ -3,8 +3,8 @@
  *
  *   GET    /                   分页模型库列表（支持 search / status / category 过滤）
  *   POST   /                   新增模型（model_id / display_name / category / provider 必填）
- *   PUT    /:modelId           更新模型
- *   DELETE /:modelId           删除模型（model_prices 外键 CASCADE 级联清理）
+ *   PUT    /                   更新模型（model_id 放 body，形如 "minimax/minimax-m3:free"）
+ *   DELETE /                   删除模型（model_id 放 body；model_prices 外键 CASCADE 级联清理）
  *
  * 业务逻辑移植自 admin_backend/routes/marketplace.js（TS 化，adminAuth + gatewayPool）。
  */
@@ -141,9 +141,14 @@ router.post("/", async (req: Request, res: Response) => {
 });
 
 // ============ 更新模型 ============
-router.put("/:modelId", async (req: Request, res: Response) => {
-  const { modelId } = req.params;
+// model_id 放 body（形如 "minimax/minimax-m3:free"，含 / 等特殊字符，不进 URL 路径）
+router.put("/", async (req: Request, res: Response) => {
   const b = req.body || {};
+  const modelId = typeof b.model_id === "string" ? b.model_id.trim() : "";
+  if (!modelId) {
+    res.status(400).json({ error: "model_id 为必填项" });
+    return;
+  }
   const sets: string[] = [];
   const params: any[] = [];
   for (const f of EDITABLE) {
@@ -180,8 +185,14 @@ router.put("/:modelId", async (req: Request, res: Response) => {
 });
 
 // ============ 删除模型 ============
-router.delete("/:modelId", async (req: Request, res: Response) => {
-  const { modelId } = req.params;
+// model_id 放 body（理由同上，避免 / 拆分 URL 路径）
+router.delete("/", async (req: Request, res: Response) => {
+  const b = req.body || {};
+  const modelId = typeof b.model_id === "string" ? b.model_id.trim() : "";
+  if (!modelId) {
+    res.status(400).json({ error: "model_id 为必填项" });
+    return;
+  }
   try {
     // model_prices / model_endpoints 均设 ON DELETE CASCADE，直接删除
     const [r] = await gatewayPool.execute("DELETE FROM model_library WHERE model_id = ?", [modelId]);

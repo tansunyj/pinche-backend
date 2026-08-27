@@ -45,6 +45,7 @@ router.get("/", async (req: Request, res: Response) => {
        FROM pt_rides r
        LEFT JOIN pt_ride_groups g ON g.ride_id = r.id
        WHERE r.status = 'ACTIVE'
+         AND r.enroll_type = 'PUBLIC'
          AND (r.start_time IS NULL OR r.start_time > NOW())
          AND (r.end_time IS NULL OR r.end_time > NOW())
        GROUP BY r.id
@@ -60,6 +61,7 @@ router.get("/", async (req: Request, res: Response) => {
        FROM pt_rides r
        LEFT JOIN pt_ride_groups g ON g.ride_id = r.id
        WHERE r.status IN ('EXPIRED')
+         AND r.enroll_type = 'PUBLIC'
          AND COALESCE(r.end_time, r.created_at) > DATE_SUB(NOW(), INTERVAL 7 DAY)
        GROUP BY r.id
        ORDER BY ended_at DESC`
@@ -126,6 +128,12 @@ router.get("/:token", async (req: Request, res: Response) => {
       joined = Array.isArray(ms) && ms.length > 0;
     }
 
+    // 管理员拉人型：仅该车次 ACTIVE 成员可见（未上车的用户一律视为不存在）
+    if (ride.enroll_type === "ADMIN_ONLY" && !joined) {
+      res.status(404).json({ error: "车次不存在或已下线" });
+      return;
+    }
+
     // §6.3 该车次累计节省额度（ride 维度，历史累计）
     const savedRows = await cpQuery(
       `SELECT COALESCE(SUM(metric_value),0) AS saved FROM unified_stats
@@ -141,6 +149,7 @@ router.get("/:token", async (req: Request, res: Response) => {
         name: ride.name,
         description: ride.description,
         status: ride.status,
+        enrollType: ride.enroll_type,
         currentCount: current,
         minCount: min,
         startTime: ride.start_time,

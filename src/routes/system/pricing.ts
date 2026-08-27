@@ -10,6 +10,10 @@
  *   - model_prices：多渠道价（status=1，billing_params 按元/1M tokens 计价，channel_id 区分渠道，
  *     channel_id IS NULL 为官方兜底价）；列表返回每个模型的 prices[]（含 channel_name）与 endpoints[]，
  *     镜像老接口 marketplace.ts 的 md 格式，前端据此做渠道切换 + 忙闲时价格查询。
+ *   - 状态过滤（用户侧统一口径）：
+ *     渠道关闭（proxy_channels.status=0）或渠道-模型关联关闭（proxy_channel_models.is_enabled=0），
+ *     其价格行一律排除——模型广场不展示「仅被关渠道/被关关联上架」的模型，多渠道模型也不提供该渠道切换；
+ *     模型目录本身已要求 model_library.status=1 && is_visible=1。
  *   - proxy_channels：渠道名称（model_prices.channel_name 缺省时回退）
  *
  * 价格展示口径（用户已确认：额度模式）：
@@ -20,7 +24,10 @@
  *     cache_ratio        = cache_hit_per_1m / input_per_1m
  *     create_cache_ratio = cache_write_per_1m / input_per_1m
  *
- * 只输出「有有效价格」的模型（任一渠道有真实价 = 上架，无价 = 未上架），管理端补价后自动出现。
+ * 上架判定（用户侧口径，含免费模型）：
+ *   任一启用渠道下有「已配置」的价格行即上架。已配置 = base_price > 0，
+ *   或 billing_params 中存在显式价格字段（值为 0 也是显式配置 = 免费模型，展示 ¥0）；
+ *   无价格行或空配置（'{}'）的价格行 = 未上架，管理端补价后自动出现。
  */
 
 import { Router, Request, Response } from "express";
@@ -147,15 +154,15 @@ const PRICE_FIELDS = [
   "1080p_noInput", "1080p_withInput", "4k_noInput", "4k_withInput",
 ] as const;
 
-/** 是否「有真实价格」：base_price > 0 或 billing_params 任一价格字段 > 0 */
-function hasRealPrice(row: PriceRow): boolean {
+/** 是否「已配置价格」：base_price > 0，或 billing_params 中至少一个价格字段被显式设置
+ *  （显式设置为 0 也算已配置 = 免费模型，同样上架；空配置 '{}' 不算已配置） */
+function hasConfiguredPrice(row: PriceRow): boolean {
   const base = toFinite(row.base_price);
   if (base && base > 0) return true;
   const bp = parseJson<Record<string, unknown>>(row.billing_params);
   if (!bp) return false;
   for (const field of PRICE_FIELDS) {
-    const v = toFinite(bp[field]);
-    if (v && v > 0) return true;
+    if (bp[field] != null && bp[field] !== "") return true;
   }
   return false;
 }
@@ -180,6 +187,12 @@ router.get("/", async (_req: Request, res: Response) => {
            FROM model_prices mp
            LEFT JOIN proxy_channels pc ON pc.id = mp.channel_id
           WHERE mp.status = 1
+            AND (mp.channel_id IS NULL OR (
+              pc.status = 1 AND EXISTS (
+                SELECT 1 FROM proxy_channel_models pcm
+                 WHERE pcm.channel_id = mp.channel_id
+                   AND pcm.model_id = mp.model_id
+                   AND pcm.is_enabled = 1)))
           ORDER BY mp.model_id, (mp.channel_id IS NULL) DESC, mp.updated_at DESC`
       ),
     ]);
@@ -187,7 +200,7 @@ router.get("/", async (_req: Request, res: Response) => {
     // 多渠道价按 model_id 分组（官方兜底价 channel_id IS NULL 排最前，其余按更新倒序）
     const pricesByModel = new Map<string, PriceRow[]>();
     for (const row of priceRows as PriceRow[]) {
-      if (!hasRealPrice(row)) continue; // 无真实价格的价格行不参与上架判定
+      if (!hasConfiguredPrice(row)) continue; // 未配置价格的价格行不参与上架判定
       const arr = pricesByModel.get(row.model_id);
       if (arr) arr.push(row);
       else pricesByModel.set(row.model_id, [row]);
@@ -205,8 +218,11 @@ router.get("/", async (_req: Request, res: Response) => {
       // 主价格 = 官方兜底价（channel_id IS NULL）优先，否则第一条渠道价
       const primary = prices[0];
       const bp = parseJson<Record<string, unknown>>(primary.billing_params) || {};
+      // 输入价维度必须存在才可展示：input_per_1m 显式存在（含 0 = 免费模型），或 base_price > 0
+      // （仅配置了图片/视频单价、无输入价维度的行维持原样跳过）
+      const hasInputDim = bp.input_per_1m != null || (toFinite(primary.base_price) ?? 0) > 0;
+      if (!hasInputDim) continue; // 无输入价维度 → 跳过
       const input = toFinite(bp.input_per_1m) ?? toFinite(primary.base_price);
-      if (!input || input <= 0) continue; // 无有效输入价 → 跳过
 
       const output = toFinite(bp.output_per_1m);
       const cacheHit = toFinite(bp.cache_hit_per_1m);
@@ -306,9 +322,15 @@ router.get("/busy/:modelId", async (req: Request, res: Response) => {
       : Number(rawChannel);
   try {
     // 注意:gwQuery 直接返回行数组,不能再用 [rows] 解构(解构会取到第一行,导致永远查不到)
+    // 渠道价仅在渠道启用(status=1)且渠道-模型关联启用(is_enabled=1)时返回;官方兜底价(channel_id IS NULL)不受影响
     const priceRows = await gwQuery(
       `SELECT id FROM model_prices
         WHERE model_id = ? AND status = 1 AND (channel_id <=> ?)
+          AND (channel_id IS NULL OR EXISTS (
+            SELECT 1 FROM proxy_channels pc
+              JOIN proxy_channel_models pcm
+                ON pcm.channel_id = pc.id AND pcm.model_id = model_prices.model_id
+             WHERE pc.id = model_prices.channel_id AND pc.status = 1 AND pcm.is_enabled = 1))
         ORDER BY token_group_code = 'default' DESC LIMIT 1`,
       [modelId, channelId]
     );

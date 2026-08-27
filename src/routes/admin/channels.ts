@@ -71,7 +71,8 @@ router.get("/models", async (req: Request, res: Response) => {
     const category = String(req.query.category || "").trim();
     const offset = (page - 1) * pageSize;
 
-    const conds: string[] = ["status = 1"];
+    // 仅列出模型库「启用且可见」的模型：模型库关闭(status=0 或 is_visible=0)的模型在渠道内查不到、不可关联
+    const conds: string[] = ["status = 1", "is_visible = 1"];
     const params: any[] = [];
     if (search) { conds.push("(model_id LIKE ? OR display_name LIKE ?)"); params.push(`%${search}%`, `%${search}%`); }
     if (category) { conds.push("category = ?"); params.push(category); }

@@ -8,6 +8,7 @@
  * 安全约束（务必遵守）：
  *   - 只读，无任何写接口；管理端 POST/PUT/DELETE 仍在 /api/admin/channels（adminAuth）。
  *   - 只返回启用渠道（status = 1）、只返回启用关联（is_enabled = 1）。
+ *   - 模型库关闭（status=0 或 is_visible=0）的模型同样不返回（模型库开关关闭 → 渠道内查不到）。
  *   - 字段白名单：绝不 SELECT api_key，绝不触碰 proxy_channel_tokens，
  *     也不暴露 priority/weight/token_lb_strategy 等内部路由配置。
  */
@@ -36,7 +37,9 @@ router.get("/", async (_req: Request, res: Response) => {
     const [rows] = await gatewayPool.execute(
       `SELECT c.id, c.name, c.type, c.base_url, c.channel_code,
               (SELECT COUNT(*) FROM proxy_channel_models cm
-                WHERE cm.channel_id = c.id AND cm.is_enabled = 1) AS model_count
+                LEFT JOIN model_library ml ON ml.model_id = cm.model_id
+                WHERE cm.channel_id = c.id AND cm.is_enabled = 1
+                  AND (ml.model_id IS NULL OR (ml.status = 1 AND ml.is_visible = 1))) AS model_count
          FROM proxy_channels c
         WHERE c.status = 1
         ORDER BY c.id DESC`
@@ -80,6 +83,7 @@ router.get("/:channelId/models", async (req: Request, res: Response) => {
                 AND mp.token_group_code = 'default'
                 AND mp.status = 1
         WHERE cm.channel_id = ? AND cm.is_enabled = 1
+          AND (ml.model_id IS NULL OR (ml.status = 1 AND ml.is_visible = 1))
         ORDER BY cm.priority DESC, cm.id ASC`,
       [channelId]
     );
