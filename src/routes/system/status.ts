@@ -44,9 +44,10 @@ const SIDEBAR_MODULES_ADMIN = {
  *  文档菜单指向站内 /docs 接入文档页（如配置 docs_link 则优先外部链接） */
 const HEADER_NAV_MODULES = {
   home: true,
+  hall: true,
   console: true,
   pricing: { enabled: true, requireAuth: false },
-  rankings: { enabled: false, requireAuth: false },
+  rankings: { enabled: true, requireAuth: false },
   docs: true,
   about: false,
 };

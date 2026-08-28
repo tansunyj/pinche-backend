@@ -58,6 +58,7 @@ import statusRoutes from "./routes/system/status";
 import noticeRoutes from "./routes/system/notice";
 import homePageContentRoutes from "./routes/system/home-page-content";
 import pricingRoutes from "./routes/system/pricing";
+import rankingsRoutes from "./routes/rankings";
 import perfMetricsRoutes from "./routes/system/perf-metrics";
 
 import { checkConnections } from "./config/db";
@@ -142,6 +143,9 @@ app.use("/api/status", statusRoutes);
 
 // 模型广场（前端 features/pricing 消费）
 app.use("/api/pricing", pricingRoutes);
+
+// 用量排行榜（公开；前端 features/rankings 消费）
+app.use("/api/rankings", rankingsRoutes);
 
 // 性能指标空 stub（模型广场详情抽屉 Overview 消费）
 app.use("/api/perf-metrics", perfMetricsRoutes);
