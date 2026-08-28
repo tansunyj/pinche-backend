@@ -67,6 +67,22 @@ router.get("/", async (req: Request, res: Response) => {
        ORDER BY ended_at DESC`
     );
 
+    // —— 已拼成团（累积）：成立过团的公开车次，含已出发/已结束（ACTIVE+EXPIRED），
+    //     按成立时间倒序。与 joinable 不同：不按出发/结束时间过滤，历史成团不消失。 ——
+    const established = await cpQuery(
+      `SELECT r.id, r.name, r.description, r.current_count,
+              r.min_count, r.start_time, r.end_time, r.established_at, r.share_token, r.status,
+              MIN(IFNULL(g.discount_rate, 1)) AS min_discount_rate
+       FROM pt_rides r
+       LEFT JOIN pt_ride_groups g ON g.ride_id = r.id
+       WHERE r.status IN ('ACTIVE','EXPIRED')
+         AND r.enroll_type = 'PUBLIC'
+         AND (r.established_at IS NOT NULL OR r.current_count >= r.min_count)
+       GROUP BY r.id
+       ORDER BY COALESCE(r.established_at, r.created_at) DESC, r.id DESC
+       LIMIT 50`
+    );
+
     const formatJoinable = (r: any) => {
       const end = r.end_time ? new Date(r.end_time).getTime() : null;
       const remainingMs = end ? end - Date.now() : null;
@@ -81,8 +97,11 @@ router.get("/", async (req: Request, res: Response) => {
         startTime: r.start_time,
         endTime: r.end_time,
         establishedAt: r.established_at,
-        // 紧迫感标识（仅临近截止）
-        almostExpired: remainingMs !== null && remainingMs <= 24 * 60 * 60 * 1000,
+        // 紧迫感标识（仅临近截止；已结束车次 remainingMs<0 不标“即将截止”）
+        almostExpired:
+          remainingMs !== null &&
+          remainingMs > 0 &&
+          remainingMs <= 24 * 60 * 60 * 1000,
       };
     };
 
@@ -97,9 +116,17 @@ router.get("/", async (req: Request, res: Response) => {
       label: "已截止",
     });
 
+    const formatEstablished = (r: any) => ({
+      ...formatJoinable(r),
+      status: r.status, // 供前端标识已结束(EXPIRED)
+    });
+
     res.json({
       joinable: (Array.isArray(joinable) ? joinable : []).map(formatJoinable),
       more: (Array.isArray(more) ? more : []).map(formatMore),
+      established: (Array.isArray(established) ? established : []).map(
+        formatEstablished
+      ),
     });
   } catch (err) {
     console.error("List rides error:", err);

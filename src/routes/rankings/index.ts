@@ -40,15 +40,16 @@ router.get("/", async (req: Request, res: Response) => {
     // 注意：解构名必须与下方 5 个查询顺序一一对应，曾因错位导致
     // modelRows 拿到 saved_quota 单行、贡献榜混入模型数据、ride 统计恒 0。
     const [rideRows, kpiRows, savedRows, modelRows, userRows] = await Promise.all([
-      // 拼车进度（公开车次在拼/已成团数）
+      // 拼车进度（公开车次）
+      //  pooling    = 正在拼车：未出发、仍在招募的公开车次（业务口径）
+      //  established= 已拼成团：累计成立过团、未被取消的公开车次（不按出发/结束时间过滤——
+      //                已出发的成团车次同样计入；曾因带 start_time>NOW() 过滤导致全部漏计）
       cpQuery(
         `SELECT
            COALESCE(SUM(CASE WHEN r.status='ACTIVE' AND r.enroll_type='PUBLIC'
                   AND (r.start_time IS NULL OR r.start_time > NOW())
                   AND (r.end_time IS NULL OR r.end_time > NOW()) THEN 1 ELSE 0 END),0) AS pooling,
            COALESCE(SUM(CASE WHEN r.status='ACTIVE' AND r.enroll_type='PUBLIC'
-                  AND (r.start_time IS NULL OR r.start_time > NOW())
-                  AND (r.end_time IS NULL OR r.end_time > NOW())
                   AND (r.established_at IS NOT NULL OR r.current_count >= r.min_count) THEN 1 ELSE 0 END),0) AS established
          FROM pt_rides r`
       ),
